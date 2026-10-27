@@ -1,0 +1,26 @@
+{
+  "api_keys": {
+    "description": "自定义 Tavily API Keys 列表",
+    "type": "list",
+    "default": [],
+    "hint": "若留空，插件将自动读取 AstrBot 全局配置中的 websearch_tavily_key。"
+  },
+  "openrouter_api_keys": {
+    "description": "自定义 OpenRouter API Keys 列表",
+    "type": "list",
+    "default": [],
+    "hint": "若留空，插件将自动读取 AstrBot 提供商配置中的 OpenRouter Key。"
+  },
+  "admin_only": {
+    "description": "仅限管理员查询",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后仅机器人管理员可以查询额度，防止群友滥用。"
+  },
+  "enable_llm_tool": {
+    "description": "启用 LLM 额度查询工具",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后，AI 在聊天中可主动调用工具查询 Tavily 与 OpenRouter 剩余额度。"
+  }
+}
