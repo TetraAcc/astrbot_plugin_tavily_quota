@@ -1,5 +1,3 @@
-import glob
-import json
 import os
 import aiohttp
 from astrbot.api import logger
@@ -12,7 +10,7 @@ from astrbot.core import AstrBotConfig
     "tavily_quota",
     "Tetra",
     "Tavily & OpenRouter 额度与用量查询插件",
-    "1.1.0",
+    "1.1.1",
 )
 class TavilyQuotaPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -23,65 +21,63 @@ class TavilyQuotaPlugin(Star):
     #  OpenRouter 相关方法
     # ──────────────────────────────────────
 
-    def _get_openrouter_keys(self) -> list[str]:
-        """获取 OpenRouter API Keys：插件配置 → AstrBot 主配置 → 环境变量"""
-        keys = []
-        # 1. 插件自定义配置
-        conf_keys = self.config.get("openrouter_api_keys", [])
-        if isinstance(conf_keys, list):
-            for k in conf_keys:
-                if isinstance(k, str) and k.strip():
-                    keys.append(k.strip())
-        elif isinstance(conf_keys, str) and conf_keys.strip():
-            keys.append(conf_keys.strip())
+    async def initialize(self):
+        """通过公开接口同步工具开关；工具入口仍会逐次校验权限。"""
+        enabled = bool(self.config.get("enable_llm_tool", True))
+        set_enabled = (
+            self.context.activate_llm_tool_async
+            if enabled
+            else self.context.deactivate_llm_tool_async
+        )
+        for name in ("query_tavily_quota", "query_openrouter_quota"):
+            await set_enabled(name)
 
+    @filter.on_astrbot_loaded()
+    async def on_astrbot_loaded(self):
+        # 框架启动时会恢复工具状态，完成后再次应用插件开关。
+        await self.initialize()
+
+    def _can_query(self, event: AstrMessageEvent) -> bool:
+        if not self.config.get("admin_only", False):
+            return True
+        return bool(event.is_admin())
+
+    @staticmethod
+    def _normalize_keys(value) -> list[str]:
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, (list, tuple)):
+            return []
+        return list(dict.fromkeys(k.strip() for k in value if isinstance(k, str) and k.strip()))
+
+    def _get_framework_config(self, event: AstrMessageEvent | None = None):
+        """仅通过公开接口获取当前会话配置，不遍历其他配置档。"""
+        try:
+            return self.context.get_config(
+                umo=event.unified_msg_origin if event is not None else None
+            )
+        except Exception:
+            logger.warning("[tavily_quota] 无法通过配置接口获取当前会话配置。")
+            return {}
+
+    def _get_openrouter_keys(self, event: AstrMessageEvent | None = None) -> list[str]:
+        """插件配置 → 当前会话配置接口 → 环境变量。"""
+        keys = self._normalize_keys(self.config.get("openrouter_api_keys", []))
         if keys:
             return keys
 
-        # 2. 从 AstrBot 主配置的 provider_sources 中查找 openrouter
-        try:
-            curr_dir = os.path.dirname(os.path.abspath(__file__))
-            data_dir = os.path.abspath(os.path.join(curr_dir, "..", ".."))
-            config_candidates = [
-                os.path.join(data_dir, "cmd_config.json"),
-            ]
-            config_candidates.extend(glob.glob(os.path.join(data_dir, "config", "abconf_*.json")))
-
-            for conf_file in config_candidates:
-                if not os.path.exists(conf_file):
+        data = self._get_framework_config(event)
+        sources = data.get("provider_sources", [])
+        if isinstance(sources, list):
+            for source in sources:
+                if not isinstance(source, dict) or not source.get("enable", True):
                     continue
-                try:
-                    with open(conf_file, "r", encoding="utf-8-sig") as f:
-                        data = json.load(f)
+                provider = str(source.get("provider", "")).lower()
+                source_type = str(source.get("type", "")).lower()
+                if "openrouter" in provider or "openrouter" in source_type:
+                    keys.extend(self._normalize_keys(source.get("key", [])))
 
-                    # 在 provider_sources 中查找 openrouter 类型
-                    sources = data.get("provider_sources", [])
-                    if not isinstance(sources, list):
-                        sources = []
-                    for src in sources:
-                        if not isinstance(src, dict):
-                            continue
-                        provider = src.get("provider", "")
-                        src_type = src.get("type", "")
-                        if "openrouter" in provider.lower() or "openrouter" in src_type.lower():
-                            src_keys = src.get("key", [])
-                            if isinstance(src_keys, list):
-                                for k in src_keys:
-                                    if isinstance(k, str) and k.strip() and k.strip() not in keys:
-                                        keys.append(k.strip())
-                            elif isinstance(src_keys, str) and src_keys.strip() and src_keys.strip() not in keys:
-                                keys.append(src_keys.strip())
-                except Exception as e:
-                    logger.debug(f"[tavily_quota] 读取配置 {conf_file} 查找 OpenRouter Key 出错: {e}")
-        except Exception as e:
-            logger.warning(f"[tavily_quota] 自动定位主配置失败: {e}")
-
-        # 3. 环境变量兜底
-        env_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-        if env_key and env_key not in keys:
-            keys.append(env_key)
-
-        return keys
+        return list(dict.fromkeys(keys)) or self._normalize_keys(os.environ.get("OPENROUTER_API_KEY", ""))
 
     async def _fetch_openrouter_quota(self, api_key: str) -> dict | None:
         headers = {"Authorization": f"Bearer {api_key}"}
@@ -196,59 +192,20 @@ class TavilyQuotaPlugin(Star):
     #  Tavily 相关方法
     # ──────────────────────────────────────
 
-    def _get_api_keys(self) -> list[str]:
-        keys = []
-        # 1. 优先读取插件自定义配置中的 keys
-        conf_keys = self.config.get("api_keys", [])
-        if isinstance(conf_keys, list):
-            for k in conf_keys:
-                if isinstance(k, str) and k.strip():
-                    keys.append(k.strip())
-        elif isinstance(conf_keys, str) and conf_keys.strip():
-            keys.append(conf_keys.strip())
-
+    def _get_api_keys(self, event: AstrMessageEvent | None = None) -> list[str]:
+        """插件配置 → 当前会话配置接口 → 环境变量。"""
+        keys = self._normalize_keys(self.config.get("api_keys", []))
         if keys:
             return keys
 
-        # 2. 回退到 AstrBot 主配置文件中读取 websearch_tavily_key
-        try:
-            curr_dir = os.path.dirname(os.path.abspath(__file__))
-            data_dir = os.path.abspath(os.path.join(curr_dir, "..", ".."))
-            config_candidates = [
-                os.path.join(data_dir, "cmd_config.json"),
-            ]
-            config_candidates.extend(glob.glob(os.path.join(data_dir, "config", "abconf_*.json")))
-
-            for conf_file in config_candidates:
-                if not os.path.exists(conf_file):
-                    continue
-                try:
-                    with open(conf_file, "r", encoding="utf-8-sig") as f:
-                        data = json.load(f)
-                    
-                    # 尝试根层级 (cmd_config.json) 或 provider_settings 层级 (abconf_*.json)
-                    t_keys = data.get("websearch_tavily_key")
-                    if not t_keys:
-                        provider_settings = data.get("provider_settings", {})
-                        t_keys = provider_settings.get("websearch_tavily_key", [])
-
-                    if isinstance(t_keys, list):
-                        for k in t_keys:
-                            if isinstance(k, str) and k.strip() and k.strip() not in keys:
-                                keys.append(k.strip())
-                    elif isinstance(t_keys, str) and t_keys.strip() and t_keys.strip() not in keys:
-                        keys.append(t_keys.strip())
-                except Exception as e:
-                    logger.debug(f"[tavily_quota] 读取配置文件 {conf_file} 出错: {e}")
-        except Exception as e:
-            logger.warning(f"[tavily_quota] 自动定位主配置失败: {e}")
-
-        # 3. 环境变量兜底
-        env_key = os.environ.get("TAVILY_API_KEY", "").strip()
-        if env_key and env_key not in keys:
-            keys.append(env_key)
-
-        return keys
+        data = self._get_framework_config(event)
+        settings = data.get("provider_settings", {})
+        keys = self._normalize_keys(
+            settings.get("websearch_tavily_key", []) if isinstance(settings, dict) else []
+        )
+        if not keys:
+            keys = self._normalize_keys(data.get("websearch_tavily_key", []))
+        return keys or self._normalize_keys(os.environ.get("TAVILY_API_KEY", ""))
 
     async def _fetch_quota(self, api_key: str) -> dict | None:
         url = "https://api.tavily.com/usage"
@@ -318,18 +275,11 @@ class TavilyQuotaPlugin(Star):
     @filter.command("tavily", alias={"tavily额度", "查额度", "tavily_quota"})
     async def query_quota_command(self, event: AstrMessageEvent):
         '''查询 Tavily 搜索引擎 API 的额度与使用情况'''
-        admin_only = self.config.get("admin_only", False)
-        # 管理员限制检查
-        if admin_only:
-            sender_id = str(event.get_sender_id())
-            # 侯哥 QQ 或者带有 admin 权限
-            is_master = sender_id in ["292801705", "D4DD424330CF05C2D3B2E769109A8451"]
-            is_admin = getattr(event, "is_admin", False)
-            if not (is_master or is_admin):
-                yield event.plain_result("⚠️ 抱歉，当前仅管理员可查询 Tavily 额度。")
-                return
+        if not self._can_query(event):
+            yield event.plain_result("⚠️ 当前仅管理员可查询 Tavily 额度。")
+            return
 
-        keys = self._get_api_keys()
+        keys = self._get_api_keys(event)
         if not keys:
             yield event.plain_result("❌ 未检测到 Tavily API Key，请在插件配置或全局配置中设置。")
             return
@@ -346,16 +296,11 @@ class TavilyQuotaPlugin(Star):
     @filter.command("openrouter", alias={"open", "openrouter额度"})
     async def query_openrouter_command(self, event: AstrMessageEvent):
         '''查询 OpenRouter API 的额度与使用情况'''
-        admin_only = self.config.get("admin_only", False)
-        if admin_only:
-            sender_id = str(event.get_sender_id())
-            is_master = sender_id in ["292801705", "D4DD424330CF05C2D3B2E769109A8451"]
-            is_admin = getattr(event, "is_admin", False)
-            if not (is_master or is_admin):
-                yield event.plain_result("⚠️ 抱歉，当前仅管理员可查询 OpenRouter 额度。")
-                return
+        if not self._can_query(event):
+            yield event.plain_result("⚠️ 当前仅管理员可查询 OpenRouter 额度。")
+            return
 
-        keys = self._get_openrouter_keys()
+        keys = self._get_openrouter_keys(event)
         if not keys:
             yield event.plain_result("❌ 未检测到 OpenRouter API Key，请在插件配置或全局配置中设置。")
             return
@@ -368,27 +313,17 @@ class TavilyQuotaPlugin(Star):
             msg = self._format_openrouter_message(key, data, show_key=False)
             yield event.plain_result(msg)
 
-    @filter.command("reload_tavily")
-    async def reload_tavily_cmd(self, event: AstrMessageEvent):
-        '''重载 tavily 插件'''
-        sender_id = str(event.get_sender_id())
-        is_master = sender_id in ["292801705", "D4DD424330CF05C2D3B2E769109A8451"]
-        if not is_master:
-            yield event.plain_result("只有侯哥可以执行重载。")
-            return
-        sm = getattr(self.context, "_star_manager", None)
-        if sm and hasattr(sm, "reload"):
-            success, msg = await sm.reload("tavily_quota")
-            yield event.plain_result(f"重载结果: {success}, {msg}")
-        else:
-            yield event.plain_result("未找到 star_manager")
-
     @filter.llm_tool(name="query_tavily_quota")
     async def query_tavily_quota_tool(self, event: AstrMessageEvent) -> str:
         '''查询当前 Tavily 搜索引擎的额度、已使用次数和剩余可用次数。
         当用户询问 tavily 额度、剩余搜索次数或 API 用量时调用。
         '''
-        keys = self._get_api_keys()
+        if not self.config.get("enable_llm_tool", True):
+            return "额度查询工具已禁用。"
+        if not self._can_query(event):
+            return "当前仅管理员可查询 API 额度。"
+
+        keys = self._get_api_keys(event)
         if not keys:
             return "未检测到配置的 Tavily API Key。"
 
@@ -408,7 +343,12 @@ class TavilyQuotaPlugin(Star):
         '''查询当前 OpenRouter API 的额度、已消费金额和剩余额度。
         当用户询问 OpenRouter 额度、剩余费用或 API 用量时调用。
         '''
-        keys = self._get_openrouter_keys()
+        if not self.config.get("enable_llm_tool", True):
+            return "额度查询工具已禁用。"
+        if not self._can_query(event):
+            return "当前仅管理员可查询 API 额度。"
+
+        keys = self._get_openrouter_keys(event)
         if not keys:
             return "未检测到配置的 OpenRouter API Key。"
 

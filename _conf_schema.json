@@ -3,13 +3,13 @@
     "description": "自定义 Tavily API Keys 列表",
     "type": "list",
     "default": [],
-    "hint": "若留空，插件将自动读取 AstrBot 全局配置中的 websearch_tavily_key。"
+    "hint": "若留空，通过 AstrBot 配置接口读取当前会话的 websearch_tavily_key，最后回退到 TAVILY_API_KEY 环境变量。"
   },
   "openrouter_api_keys": {
     "description": "自定义 OpenRouter API Keys 列表",
     "type": "list",
     "default": [],
-    "hint": "若留空，插件将自动读取 AstrBot 提供商配置中的 OpenRouter Key。"
+    "hint": "若留空，通过 AstrBot 配置接口读取当前会话的 OpenRouter Key，最后回退到 OPENROUTER_API_KEY 环境变量。"
   },
   "admin_only": {
     "description": "仅限管理员查询",
@@ -21,6 +21,6 @@
     "description": "启用 LLM 额度查询工具",
     "type": "bool",
     "default": true,
-    "hint": "开启后，AI 在聊天中可主动调用工具查询 Tavily 与 OpenRouter 剩余额度。"
+    "hint": "关闭后停用两个 LLM 额度查询工具；斜杠命令仍可使用，且均遵循管理员限制。保存后重载插件生效。"
   }
 }
