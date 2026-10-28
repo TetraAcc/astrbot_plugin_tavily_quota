@@ -1,7 +1,7 @@
 # API 额度查询（Tavily & OpenRouter）
 
 AstrBot 插件 `astrbot_plugin_tavily_quota`，支持通过命令或自然语言查询 Tavily 与 OpenRouter 的额度和使用情况。
-
+https://cloud.astrbot.app/plugin/TetraAcc/astrbot_plugin_tavily_quota?returnTo=/profile&tab=docs
 当前版本：**v1.1.1**。完整版本记录见 [更新日志](CHANGELOG.md)。
 
 ## 功能
