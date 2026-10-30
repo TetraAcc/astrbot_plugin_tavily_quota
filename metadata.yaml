@@ -1,6 +1,6 @@
 name: astrbot_plugin_tavily_quota
 display_name: API 额度查询 (Tavily & OpenRouter)
 desc: 查询 Tavily 搜索引擎与 OpenRouter API 的额度与使用情况，支持指令 /tavily, /openrouter 与自然语言工具调用
-version: v1.1.1
+version: v1.1.2
 author: Tetra
 repo: https://github.com/TetraAcc/astrbot_plugin_tavily_quota

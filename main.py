@@ -10,7 +10,7 @@ from astrbot.core import AstrBotConfig
     "tavily_quota",
     "Tetra",
     "Tavily & OpenRouter 额度与用量查询插件",
-    "1.1.1",
+    "1.1.2",
 )
 class TavilyQuotaPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):

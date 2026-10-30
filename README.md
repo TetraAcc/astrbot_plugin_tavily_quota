@@ -4,7 +4,7 @@ AstrBot 插件 `astrbot_plugin_tavily_quota`，支持通过命令或自然语言
 
 https://cloud.astrbot.app/plugin/TetraAcc/astrbot_plugin_tavily_quota?returnTo=/profile&tab=docs
 
-当前版本：**v1.1.1**。完整版本记录见 [更新日志](CHANGELOG.md)。
+当前版本：**v1.1.2**。完整版本记录见 [更新日志](CHANGELOG.md)。
 
 ## 功能
 
