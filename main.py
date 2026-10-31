@@ -331,7 +331,7 @@ class TavilyQuotaPlugin(Star):
 
         return "\n".join(lines)
 
-    @filter.command("tavily", alias={"tavily额度", "查额度"})
+    @filter.command("tav")
     async def query_quota_command(self, event: AstrMessageEvent):
         '''查询 Tavily 搜索引擎 API 的额度与使用情况'''
         if not self._can_query(event):

@@ -334,12 +334,14 @@ class NewServicesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(declared["quota"]["alias"], {"配额"})
         self.assertEqual(declared["deepseek"]["alias"], {"deep"})
         self.assertEqual(declared["github"]["alias"], {"git"})
-        self.assertIn("tavily", declared)
+        self.assertEqual(declared["tav"], {})
         self.assertIn("openrouter", declared)
         command_names = set(declared)
         for options in declared.values():
             command_names.update(options.get("alias", set()))
         self.assertFalse(any(name.endswith("_quota") for name in command_names))
+        for removed in ("tavily", "tavity", "tavily额度", "查额度"):
+            self.assertNotIn(removed, command_names)
         self.assertEqual(set(tools), {"query_tavily_quota", "query_openrouter_quota",
                                       "query_deepseek_quota", "query_github_quota"})
 
