@@ -332,10 +332,14 @@ class NewServicesTests(unittest.IsolatedAsyncioTestCase):
                 elif deco.func.attr == "llm_tool":
                     tools.extend(ast.literal_eval(kw.value) for kw in deco.keywords if kw.arg == "name")
         self.assertEqual(declared["quota"]["alias"], {"配额"})
-        self.assertEqual(declared["deepseek"]["alias"], {"deep", "deepseek_quota"})
-        self.assertEqual(declared["github"]["alias"], {"git", "github_quota"})
+        self.assertEqual(declared["deepseek"]["alias"], {"deep"})
+        self.assertEqual(declared["github"]["alias"], {"git"})
         self.assertIn("tavily", declared)
         self.assertIn("openrouter", declared)
+        command_names = set(declared)
+        for options in declared.values():
+            command_names.update(options.get("alias", set()))
+        self.assertFalse(any(name.endswith("_quota") for name in command_names))
         self.assertEqual(set(tools), {"query_tavily_quota", "query_openrouter_quota",
                                       "query_deepseek_quota", "query_github_quota"})
 

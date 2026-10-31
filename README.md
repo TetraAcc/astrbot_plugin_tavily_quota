@@ -20,14 +20,16 @@ AstrBot 插件 `astrbot_plugin_tavily_quota`，支持通过命令或自然语言
 
 | 入口 | 用途 | 别名 |
 | --- | --- | --- |
-| `/tavily` | 查询 Tavily 额度 | `/tavily额度`、`/查额度`、`/tavily_quota` |
+| `/tavily` | 查询 Tavily 额度 | `/tavily额度`、`/查额度` |
 | `/openrouter` | 查询 OpenRouter 额度 | `/open`、`/openrouter额度` |
 | `/quota` | 汇总全部已配置服务 | `/配额` |
-| `/deepseek` | 查询 DeepSeek 余额 | `/deep`、`/deepseek_quota` |
-| `/github` | 查询 GitHub API Rate Limit | `/git`、`/github_quota` |
+| `/deepseek` | 查询 DeepSeek 余额 | `/deep` |
+| `/github` | 查询 GitHub API Rate Limit | `/git` |
 | `/quota 服务名` | 指定 `tavily`、`openrouter`、`deepseek` 或 `github` 单查 | 兼容聚合入口的用法 |
 
 手动查询可直接发送 `/tavily`、`/open`、`/deep`、`/git`，无需附加 `quota`。
+
+已移除各服务的 `*_quota` 长别名，汇总查询统一使用 `/quota`。
 
 开启 LLM 工具后，也可以说“查询 Tavily 剩余额度”“查询 OpenRouter 余额”“查询 DeepSeek 余额”或“查询 GitHub 剩余 API 次数”，由模型调用对应工具：
 

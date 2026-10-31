@@ -3,7 +3,7 @@
 ## v1.2.1 — 2026-10-31
 
 - DeepSeek 支持直接使用 `/deep`、`/deepseek`，GitHub 支持 `/git`、`/github`，缩短手动查询指令。
-- 保留原有 `/tavily`、`/openrouter` 及全部旧别名；兼容 `/deepseek_quota`、`/github_quota` 和 `/quota 服务名`。
+- 保留 `/tavily`、`/openrouter` 及短别名；删除 `/tavily_quota`、`/deepseek_quota`、`/github_quota` 冗余长别名，汇总统一使用 `/quota`。
 - 更新指令说明与别名回归检查，额度查询逻辑保持不变。
 
 ## v1.2.0 — 2026-10-31

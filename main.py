@@ -331,7 +331,7 @@ class TavilyQuotaPlugin(Star):
 
         return "\n".join(lines)
 
-    @filter.command("tavily", alias={"tavily额度", "查额度", "tavily_quota"})
+    @filter.command("tavily", alias={"tavily额度", "查额度"})
     async def query_quota_command(self, event: AstrMessageEvent):
         '''查询 Tavily 搜索引擎 API 的额度与使用情况'''
         if not self._can_query(event):
@@ -663,12 +663,12 @@ class TavilyQuotaPlugin(Star):
         """查询全部已配置服务，或使用 /quota 服务名 查询指定服务。"""
         yield event.plain_result(await self._query_services(event, service))
 
-    @filter.command("deepseek", alias={"deep", "deepseek_quota"})
+    @filter.command("deepseek", alias={"deep"})
     async def query_deepseek_command(self, event: AstrMessageEvent):
         """查询 DeepSeek 余额。"""
         yield event.plain_result(await self._query_services(event, "deepseek"))
 
-    @filter.command("github", alias={"git", "github_quota"})
+    @filter.command("github", alias={"git"})
     async def query_github_command(self, event: AstrMessageEvent):
         """查询 GitHub API Rate Limit 及可获取的 Actions 配额。"""
         yield event.plain_result(await self._query_services(event, "github"))
