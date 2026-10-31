@@ -11,6 +11,18 @@
     "default": [],
     "hint": "若留空，通过 AstrBot 配置接口读取当前会话的 OpenRouter Key，最后回退到 OPENROUTER_API_KEY 环境变量。"
   },
+  "deepseek_api_keys": {
+    "description": "DeepSeek API Keys",
+    "type": "list",
+    "default": [],
+    "hint": "留空则从当前会话已启用的 DeepSeek 大模型配置探查，最后回退到 DEEPSEEK_API_KEY 环境变量。"
+  },
+  "github_tokens": {
+    "description": "GitHub Personal Access Tokens",
+    "type": "list",
+    "default": [],
+    "hint": "留空则兼容 github_personal_access_tokens 配置，最后回退到 GITHUB_TOKEN 或 GH_TOKEN 环境变量。Actions 附加信息不可用时仅展示 API Rate Limit。"
+  },
   "admin_only": {
     "description": "仅限管理员查询",
     "type": "bool",
@@ -21,6 +33,6 @@
     "description": "启用 LLM 额度查询工具",
     "type": "bool",
     "default": true,
-    "hint": "关闭后停用两个 LLM 额度查询工具；斜杠命令仍可使用，且均遵循管理员限制。保存后重载插件生效。"
+    "hint": "关闭后停用四个 LLM 额度查询工具；斜杠命令仍可使用，且均遵循管理员限制。保存后重载插件生效。"
   }
 }
