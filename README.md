@@ -8,7 +8,7 @@
 
 | 服务 | 指令 | 查询内容 |
 | --- | --- | --- |
-| Tavily | `/tav` | 套餐、已用与剩余额度 |
+| Tavily | `/tav`、`/tavily` | 套餐、已用与剩余额度 |
 | OpenRouter | `/open`、`/openrouter` | 账户余额、消费和 Key 预算 |
 | DeepSeek | `/deep`、`/deepseek` | 可用状态、币种、总余额、充值余额和体验金 |
 | GitHub | `/git`、`/github` | Core API 剩余次数、配额和重置时间 |

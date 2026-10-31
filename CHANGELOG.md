@@ -2,7 +2,7 @@
 
 ## v1.2.1 — 2026-10-31
 
-- Tavily 查询统一为 `/tav`，删除 `/tavily`、`/tavily额度` 和 `/查额度`。
+- Tavily 保留 `/tav`、`/tavily` 一短一长两个入口，删除 `/tavily额度` 和 `/查额度`。
 - DeepSeek 支持直接使用 `/deep`、`/deepseek`，GitHub 支持 `/git`、`/github`，缩短手动查询指令。
 - 删除 `/tavily_quota`、`/deepseek_quota`、`/github_quota` 冗余长别名，汇总统一使用 `/quota`。
 - 更新指令说明与别名回归检查，额度查询逻辑保持不变。
