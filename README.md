@@ -4,7 +4,7 @@ AstrBot 插件 `astrbot_plugin_tavily_quota`，支持通过命令或自然语言
 
 [AstrBot 插件页](https://cloud.astrbot.app/plugin/TetraAcc/astrbot_plugin_tavily_quota?returnTo=/profile&tab=docs)
 
-当前版本：**v1.2.0**。完整版本记录见 [更新日志](CHANGELOG.md)。
+当前版本：**v1.2.1**。完整版本记录见 [更新日志](CHANGELOG.md)。
 
 ## 功能
 
@@ -23,9 +23,11 @@ AstrBot 插件 `astrbot_plugin_tavily_quota`，支持通过命令或自然语言
 | `/tavily` | 查询 Tavily 额度 | `/tavily额度`、`/查额度`、`/tavily_quota` |
 | `/openrouter` | 查询 OpenRouter 额度 | `/open`、`/openrouter额度` |
 | `/quota` | 汇总全部已配置服务 | `/配额` |
-| `/quota tavily`、`/quota openrouter` | 单独查询原有服务 | 原有指令继续可用 |
-| `/quota deepseek` | 查询 DeepSeek 余额 | `/deepseek_quota` |
-| `/quota github` | 查询 GitHub API Rate Limit | `/github_quota` |
+| `/deepseek` | 查询 DeepSeek 余额 | `/deep`、`/deepseek_quota` |
+| `/github` | 查询 GitHub API Rate Limit | `/git`、`/github_quota` |
+| `/quota 服务名` | 指定 `tavily`、`openrouter`、`deepseek` 或 `github` 单查 | 兼容聚合入口的用法 |
+
+手动查询可直接发送 `/tavily`、`/open`、`/deep`、`/git`，无需附加 `quota`。
 
 开启 LLM 工具后，也可以说“查询 Tavily 剩余额度”“查询 OpenRouter 余额”“查询 DeepSeek 余额”或“查询 GitHub 剩余 API 次数”，由模型调用对应工具：
 
@@ -100,12 +102,12 @@ GitHub · 凭据 1
 ⏰ 重置时间: 2026-10-31 21:00:00 JST（本地时间）
 ```
 
-## 升级到 v1.2.0
+## 升级到 v1.2.x
 
 1. 更新插件后，在 WebUI 重载插件；保留原有 Tavily、OpenRouter Key、管理员限制及工具开关配置。
 2. 使用 DeepSeek 时，填写 `deepseek_api_keys`，或确认当前会话存在已启用、`provider` 或 `type` 包含 `deepseek` 的 Provider；否则使用 `DEEPSEEK_API_KEY` 环境变量。
 3. 使用 GitHub 时，在 `github_tokens` 中填写自己的 PAT，或让 AstrBot 进程获得 `GITHUB_TOKEN` / `GH_TOKEN`；插件不使用本机 Git 登录凭据。
-4. 发送 `/quota` 查询全部已配置服务，或发送 `/quota deepseek`、`/quota github` 单独查询。未配置新服务不影响原有命令。
+4. 发送 `/quota` 查询全部已配置服务，或直接发送 `/deep`、`/git` 单独查询新服务；`/quota deepseek`、`/quota github` 继续兼容。未配置新服务不影响原有命令。
 5. `enable_llm_tool` 现统一控制四个额度工具。关闭后，所有斜杠命令仍可使用，并继续遵循 `admin_only`。
 
 本次没有数据迁移，也不会自动修改已有凭据配置。GitHub Actions 查询的可用性限制见上文。

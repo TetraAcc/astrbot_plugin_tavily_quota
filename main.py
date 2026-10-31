@@ -14,7 +14,7 @@ from astrbot.core import AstrBotConfig
     "tavily_quota",
     "Tetra",
     "Tavily、OpenRouter、DeepSeek 与 GitHub 额度查询插件",
-    "1.2.0",
+    "1.2.1",
 )
 class TavilyQuotaPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -663,12 +663,12 @@ class TavilyQuotaPlugin(Star):
         """查询全部已配置服务，或使用 /quota 服务名 查询指定服务。"""
         yield event.plain_result(await self._query_services(event, service))
 
-    @filter.command("deepseek_quota")
+    @filter.command("deepseek", alias={"deep", "deepseek_quota"})
     async def query_deepseek_command(self, event: AstrMessageEvent):
         """查询 DeepSeek 余额。"""
         yield event.plain_result(await self._query_services(event, "deepseek"))
 
-    @filter.command("github_quota")
+    @filter.command("github", alias={"git", "github_quota"})
     async def query_github_command(self, event: AstrMessageEvent):
         """查询 GitHub API Rate Limit 及可获取的 Actions 配额。"""
         yield event.plain_result(await self._query_services(event, "github"))

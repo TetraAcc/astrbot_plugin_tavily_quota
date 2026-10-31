@@ -1,6 +1,6 @@
 name: astrbot_plugin_tavily_quota
 display_name: API 额度查询 (Tavily / OpenRouter / DeepSeek / GitHub)
 desc: 查询 Tavily、OpenRouter、DeepSeek 与 GitHub 配额，支持统一汇总、独立指令和自然语言工具调用。
-version: v1.2.0
+version: v1.2.1
 author: Tetra
 repo: https://github.com/TetraAcc/astrbot_plugin_tavily_quota
