@@ -1,23 +1,12 @@
 # 更新日志
 
-## v1.4.0 — 2026-11-08
+## v1.4.0 — 2026-11-09
 
-### 新增
-
-- **接入四大多模态与搜索服务**：
-  - **SiliconFlow (硅基流动)**：支持 `/sili`、`/silicon` 查询总余额、充值金、赠金及账号状态。
-  - **Moonshot AI (Kimi)**：支持 `/kimi`、`/moonshot` 查询可用余额、现金与代金券。
-  - **Zhipu AI (智谱/GLM)**：支持 `/glm` 查询现金余额与 Coding Plan 5小时滑动窗口配额。
-  - **Serper (Google Search)**：支持 `/serper` 查询 Google 网页搜索剩余调用配额。
-- **跨平台中文字体安全加载**：
-  - 插件内置独立开源 CJK 字体，彻底杜绝 Linux / SteamOS / Docker 上的“豆腐块”乱码。
-- **多凭据智能隔离**：
-  - `/quota` 自动识别已配置平台，未配置的项目自动静默隐藏，不污染看板。
-- **扩展后台自动预警**：
-  - 增加对硅基流动、Kimi、智谱与 Serper 的低额度自动巡检。
-- **全平台 LLM 工具与指令签名硬化**：
-  - 彻底修复 `*args` 导致的 AstrBot `必要参数缺失` 异常。
-  - 彻底修复 LLM Function Calling 调用工具时 `missing 1 required positional argument: 'event'` 异常。
+- 新增 SiliconFlow（`/sili`、`/silicon`）、Moonshot（`/kimi`、`/moonshot`）、智谱（`/glm`）与 Serper（`/serper`）额度与余额查询。
+- `/quota` 自动过滤未配置平台，无冗余项，保持看板整洁。
+- 内置开源中文字体，彻底解决 Linux / SteamOS 上的卡片豆腐块乱码。
+- 全平台支持大模型自然语言工具调用与后台低额度自动巡检预警。
+- 修复指令与 LLM Tool 签名缺陷，彻底解决参数缺失异常。
 
 ## v1.3.0 — 2026-11-08
 
