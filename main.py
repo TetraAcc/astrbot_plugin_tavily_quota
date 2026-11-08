@@ -26,7 +26,7 @@ except ImportError:
 
 
 @register(
-    "api_quota",
+    "tavily_quota",
     "Tetra",
     "Tavily、OpenRouter、DeepSeek、GitHub、硅基流动、Kimi、智谱与 Serper 额度查询插件",
     "1.4.0",

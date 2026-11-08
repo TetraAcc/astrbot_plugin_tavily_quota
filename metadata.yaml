@@ -1,4 +1,4 @@
-name: astrbot_plugin_api_quota
+name: astrbot_plugin_tavily_quota
 display_name: 全能 API 额度与余额监控 (DeepSeek/硅基/Kimi/智谱/GitHub/Tavily/Serper)
 desc: 一站式查询 Tavily、OpenRouter、DeepSeek、GitHub、SiliconFlow(硅基流动)、Moonshot(Kimi)、Zhipu(智谱/GLM) 与 Serper 配额与余额，支持高颜值暗色看板、自动隔离隐藏未配置平台、低额度自动预警与大模型自然语言工具调用。
 version: v1.4.0
