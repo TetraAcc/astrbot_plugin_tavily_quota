@@ -62,12 +62,28 @@
   "alert_thresholds": {
     "description": "各平台预警触发阈值",
     "type": "object",
-    "default": {
-      "deepseek_min_balance": 5.0,
-      "openrouter_min_balance": 1.0,
-      "tavily_min_remaining": 100,
-      "github_min_remaining": 500
-    },
-    "hint": "当余额或剩余配额小于等于设定值时触发告警。"
+    "hint": "当余额或剩余配额小于等于设定值时触发告警。",
+    "items": {
+      "deepseek_min_balance": {
+        "description": "DeepSeek 最低余额预警阈值",
+        "type": "float",
+        "default": 5.0
+      },
+      "openrouter_min_balance": {
+        "description": "OpenRouter 最低余额预警阈值",
+        "type": "float",
+        "default": 1.0
+      },
+      "tavily_min_remaining": {
+        "description": "Tavily 最低剩余次数预警阈值",
+        "type": "int",
+        "default": 100
+      },
+      "github_min_remaining": {
+        "description": "GitHub 最低剩余调用次数预警阈值",
+        "type": "int",
+        "default": 500
+      }
+    }
   }
 }
