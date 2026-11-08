@@ -10,6 +10,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
@@ -46,6 +47,10 @@ SERVICE_COLORS: dict[str, tuple[int, int, int]] = {
     "openrouter": (168, 85, 247),  # 炫紫 #A855F7
     "deepseek": (59, 130, 246),    # 科技蓝 #3B82F6
     "github": (226, 232, 240),      # 银白 #E2E8F0
+    "siliconflow": (16, 185, 129),  # 硅基薄荷绿 #10B981
+    "moonshot": (245, 158, 11),     # 月之暗面暖橙/金黄 #F59E0B
+    "zhipu": (99, 102, 241),        # 智谱靛蓝 #6366F1
+    "serper": (236, 72, 153),       # Serper 玫红 #EC4899
 }
 
 SERVICE_LABELS: dict[str, str] = {
@@ -53,6 +58,10 @@ SERVICE_LABELS: dict[str, str] = {
     "openrouter": "OpenRouter AI",
     "deepseek": "DeepSeek API",
     "github": "GitHub Core API",
+    "siliconflow": "SiliconFlow (硅基流动)",
+    "moonshot": "Moonshot AI (Kimi)",
+    "zhipu": "Zhipu AI (智谱/GLM)",
+    "serper": "Serper (Google Search)",
 }
 
 
@@ -71,9 +80,26 @@ class ServiceCardData:
 #  字体安全回退
 # ──────────────────────────────────────────────
 
+_ASSETS_FONT = Path(__file__).resolve().parent / "assets" / "font.ttf"
+
 @lru_cache(maxsize=32)
 def _get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     """按平台优先级自动探查中文字体，最终回退到默认位图字体。"""
+    # 1. 优先使用插件内置自带字体（100% 确保 Linux / Steam Deck / Windows / Docker 跨平台中文正常渲染）
+    if _ASSETS_FONT.exists():
+        try:
+            return ImageFont.truetype(str(_ASSETS_FONT), size)
+        except Exception:
+            pass
+
+    # 2. 探查同级 parser 插件内自带的中文字体
+    try:
+        sibling_font = Path(__file__).resolve().parent.parent / "astrbot_plugin_parser" / "core" / "resources" / "HYSongYunLangHeiW-1.ttf"
+        if sibling_font.exists():
+            return ImageFont.truetype(str(sibling_font), size)
+    except Exception:
+        pass
+
     if bold:
         candidates = [
             ("C:/Windows/Fonts/msyhbd.ttc", 0),
@@ -81,9 +107,14 @@ def _get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFo
             ("C:/Windows/Fonts/simhei.ttf", 0),
             ("/System/Library/Fonts/PingFang.ttc", 1),
             ("/System/Library/Fonts/Hiragino Sans GB.ttc", 1),
+            ("/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc", 0),
+            ("/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.otf", 0),
+            ("/usr/share/fonts/noto/NotoSansCJK-Bold.ttc", 0),
             ("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 0),
             ("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.otf", 0),
             ("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc", 0),
+            ("/usr/share/fonts/wenquanyi/wqy-microhei/wqy-microhei.ttc", 0),
+            ("/usr/share/fonts/wenquanyi/wqy-zenhei/wqy-zenhei.ttc", 0),
             ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 0),
         ]
     else:
@@ -92,9 +123,14 @@ def _get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFo
             ("C:/Windows/Fonts/simsun.ttc", 0),
             ("/System/Library/Fonts/PingFang.ttc", 0),
             ("/System/Library/Fonts/Hiragino Sans GB.ttc", 0),
+            ("/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc", 0),
+            ("/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.otf", 0),
+            ("/usr/share/fonts/noto/NotoSansCJK-Regular.ttc", 0),
             ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 0),
             ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.otf", 0),
             ("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc", 0),
+            ("/usr/share/fonts/wenquanyi/wqy-microhei/wqy-microhei.ttc", 0),
+            ("/usr/share/fonts/wenquanyi/wqy-zenhei/wqy-zenhei.ttc", 0),
             ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 0),
         ]
 
@@ -104,6 +140,13 @@ def _get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFo
                 return ImageFont.truetype(path, size, index=index)
             except Exception:
                 continue
+
+    # 3. 尝试通过字体名称加载
+    for name in ("Noto Sans CJK SC", "WenQuanYi Micro Hei", "Microsoft YaHei", "PingFang SC"):
+        try:
+            return ImageFont.truetype(name, size)
+        except Exception:
+            pass
 
     try:
         return ImageFont.load_default(size=size)
@@ -270,7 +313,7 @@ def render_quota_dashboard(items: list[ServiceCardData], title: str = "API 配�
     font_footer = _get_font(12, bold=False)
     draw.text(
         (CARD_PAD_X, total_height - 30),
-        "AstrBot · tavily_quota v1.3.0 | 支持 /quota alert here 开启告警",
+        "AstrBot · api_quota v1.4.0 | 支持 /quota alert here 开启告警",
         font=font_footer,
         fill=COLOR_TEXT_MUTED,
     )

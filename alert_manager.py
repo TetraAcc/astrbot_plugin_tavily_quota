@@ -52,7 +52,7 @@ class QuotaAlertManager:
             except Exception as e:
                 try:
                     from astrbot.api import logger
-                    logger.warning(f"[tavily_quota] 自动巡检发生异常: {e}")
+                    logger.warning(f"[api_quota] 自动巡检发生异常: {e}")
                 except Exception:
                     pass
 
@@ -75,6 +75,10 @@ class QuotaAlertManager:
         openrouter_min = float(thresholds.get("openrouter_min_balance", 1.0))
         tavily_min = int(thresholds.get("tavily_min_remaining", 100))
         github_min = int(thresholds.get("github_min_remaining", 500))
+        siliconflow_min = float(thresholds.get("siliconflow_min_balance", 5.0))
+        moonshot_min = float(thresholds.get("moonshot_min_balance", 5.0))
+        zhipu_min = float(thresholds.get("zhipu_min_balance", 5.0))
+        serper_min = int(thresholds.get("serper_min_credits", 100))
 
         alerts: list[str] = []
 
@@ -169,6 +173,82 @@ class QuotaAlertManager:
             except Exception:
                 pass
 
+        # 5. 检查 SiliconFlow (硅基流动)
+        sili_keys = self.plugin._get_siliconflow_keys(None)
+        for key in sili_keys:
+            try:
+                data = await self.plugin._fetch_siliconflow_quota(key)
+                if not data:
+                    continue
+                tot = float(data.get("totalBalance", 0.0))
+                if tot <= siliconflow_min:
+                    mask = self.plugin._mask_key(key)
+                    alerts.append(
+                        f"⚠️ 【SiliconFlow (硅基流动) 余额偏低】\n"
+                        f"Key: {mask}\n"
+                        f"当前总余额: ¥{tot:.2f}（阈值: ¥{siliconflow_min:.2f}）\n"
+                        f"请及时充值以免模型调用受限。"
+                    )
+            except Exception:
+                pass
+
+        # 6. 检查 Moonshot AI (Kimi)
+        kimi_keys = self.plugin._get_moonshot_keys(None)
+        for key in kimi_keys:
+            try:
+                data = await self.plugin._fetch_moonshot_quota(key)
+                if not data:
+                    continue
+                avail = float(data.get("available_balance", 0.0))
+                if avail <= moonshot_min:
+                    mask = self.plugin._mask_key(key)
+                    alerts.append(
+                        f"⚠️ 【Moonshot AI (Kimi) 余额偏低】\n"
+                        f"Key: {mask}\n"
+                        f"当前可用余额: ¥{avail:.2f}（阈值: ¥{moonshot_min:.2f}）\n"
+                        f"请注意补充额度。"
+                    )
+            except Exception:
+                pass
+
+        # 7. 检查 Zhipu AI (GLM)
+        zhipu_keys = self.plugin._get_zhipu_keys(None)
+        for key in zhipu_keys:
+            try:
+                data = await self.plugin._fetch_zhipu_quota(key)
+                if not data:
+                    continue
+                acc = data.get("account")
+                if isinstance(acc, dict):
+                    avail = float(acc.get("availableBalance") or acc.get("balance") or 0.0)
+                    if avail <= zhipu_min:
+                        mask = self.plugin._mask_key(key)
+                        alerts.append(
+                            f"⚠️ 【Zhipu AI (智谱) 余额偏低】\n"
+                            f"Key: {mask}\n"
+                            f"当前现金余额: ¥{avail:.2f}（阈值: ¥{zhipu_min:.2f}）"
+                        )
+            except Exception:
+                pass
+
+        # 8. 检查 Serper
+        serper_keys = self.plugin._get_serper_keys(None)
+        for key in serper_keys:
+            try:
+                data = await self.plugin._fetch_serper_quota(key)
+                if not data:
+                    continue
+                credits = int(data.get("credits", 0))
+                if credits <= serper_min:
+                    mask = self.plugin._mask_key(key)
+                    alerts.append(
+                        f"⚠️ 【Serper 搜索额度不足】\n"
+                        f"Key: {mask}\n"
+                        f"当前剩余: {credits:,} 次（阈值: {serper_min:,} 次）"
+                    )
+            except Exception:
+                pass
+
         # 如果没有告警或未配置接收目标
         if not alerts:
             return []
@@ -195,6 +275,6 @@ class QuotaAlertManager:
         except Exception as e:
             try:
                 from astrbot.api import logger
-                logger.warning(f"[tavily_quota] 发送预警消息失败: {e}")
+                logger.warning(f"[api_quota] 发送预警消息失败: {e}")
             except Exception:
                 pass

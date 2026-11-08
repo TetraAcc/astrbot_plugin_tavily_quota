@@ -23,6 +23,30 @@
     "default": [],
     "hint": "留空则兼容 github_personal_access_tokens 配置，最后回退到 GITHUB_TOKEN 或 GH_TOKEN 环境变量。Actions 附加信息不可用时仅展示 API Rate Limit。"
   },
+  "siliconflow_api_keys": {
+    "description": "SiliconFlow (硅基流动) API Keys",
+    "type": "list",
+    "default": [],
+    "hint": "留空则从当前会话配置的 SiliconFlow 模型探查，最后回退到 SILICONFLOW_API_KEY 环境变量。"
+  },
+  "moonshot_api_keys": {
+    "description": "Moonshot AI (Kimi) API Keys",
+    "type": "list",
+    "default": [],
+    "hint": "留空则从当前会话配置的 Moonshot / Kimi 模型探查，最后回退到 MOONSHOT_API_KEY 环境变量。"
+  },
+  "zhipu_api_keys": {
+    "description": "Zhipu AI (智谱/GLM) API Keys",
+    "type": "list",
+    "default": [],
+    "hint": "留空则从当前会话配置的 Zhipu / GLM 模型探查，最后回退到 ZHIPUAI_API_KEY 环境变量。"
+  },
+  "serper_api_keys": {
+    "description": "Serper (Google Search) API Keys",
+    "type": "list",
+    "default": [],
+    "hint": "留空则从 SERPER_API_KEY 环境变量中读取。"
+  },
   "admin_only": {
     "description": "仅限管理员查询",
     "type": "bool",
@@ -83,6 +107,26 @@
         "description": "GitHub 最低剩余调用次数预警阈值",
         "type": "int",
         "default": 500
+      },
+      "siliconflow_min_balance": {
+        "description": "SiliconFlow (硅基流动) 最低余额预警阈值",
+        "type": "float",
+        "default": 5.0
+      },
+      "moonshot_min_balance": {
+        "description": "Moonshot AI (Kimi) 最低余额预警阈值",
+        "type": "float",
+        "default": 5.0
+      },
+      "zhipu_min_balance": {
+        "description": "Zhipu AI (智谱/GLM) 最低余额预警阈值",
+        "type": "float",
+        "default": 5.0
+      },
+      "serper_min_credits": {
+        "description": "Serper 最低剩余调用次数预警阈值",
+        "type": "int",
+        "default": 100
       }
     }
   }

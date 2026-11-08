@@ -343,7 +343,7 @@ class NewServicesTests(unittest.IsolatedAsyncioTestCase):
         for removed in ("tavity", "tavily额度", "查额度"):
             self.assertNotIn(removed, command_names)
         self.assertEqual(set(tools), {"query_tavily_quota", "query_openrouter_quota",
-                                      "query_deepseek_quota", "query_github_quota"})
+                                      "query_deepseek_quota", "query_github_quota", "query_siliconflow_quota", "query_moonshot_quota", "query_zhipu_quota", "query_serper_quota"})
 
 
 if __name__ == "__main__":

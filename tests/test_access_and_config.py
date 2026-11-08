@@ -129,7 +129,7 @@ class AccessAndConfigTests(unittest.IsolatedAsyncioTestCase):
             setter = self.context.activate_llm_tool_async if enabled else self.context.deactivate_llm_tool_async
             self.assertEqual([call.args[0] for call in setter.await_args_list],
                              ["query_tavily_quota", "query_openrouter_quota",
-                              "query_deepseek_quota", "query_github_quota"])
+                              "query_deepseek_quota", "query_github_quota", "query_siliconflow_quota", "query_moonshot_quota", "query_zhipu_quota", "query_serper_quota"])
             other = self.context.deactivate_llm_tool_async if enabled else self.context.activate_llm_tool_async
             other.assert_not_awaited()
 
@@ -141,7 +141,7 @@ class AccessAndConfigTests(unittest.IsolatedAsyncioTestCase):
     async def test_startup_reapplies_tool_switch_after_framework_restore(self):
         self.plugin.config["enable_llm_tool"] = False
         await self.plugin.on_astrbot_loaded()
-        self.assertEqual(self.context.deactivate_llm_tool_async.await_count, 4)
+        self.assertEqual(self.context.deactivate_llm_tool_async.await_count, 8)
 
     def test_explicit_keys_take_priority_and_are_deduplicated(self):
         self.plugin.config.update(api_keys=[" one ", "one", "", None], openrouter_api_keys=" two ")

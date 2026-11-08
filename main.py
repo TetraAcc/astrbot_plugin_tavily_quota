@@ -26,10 +26,10 @@ except ImportError:
 
 
 @register(
-    "tavily_quota",
+    "api_quota",
     "Tetra",
-    "Tavily、OpenRouter、DeepSeek 与 GitHub 额度查询插件",
-    "1.3.0",
+    "Tavily、OpenRouter、DeepSeek、GitHub、硅基流动、Kimi、智谱与 Serper 额度查询插件",
+    "1.4.0",
 )
 class TavilyQuotaPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -52,6 +52,8 @@ class TavilyQuotaPlugin(Star):
         for name in (
             "query_tavily_quota", "query_openrouter_quota",
             "query_deepseek_quota", "query_github_quota",
+            "query_siliconflow_quota", "query_moonshot_quota",
+            "query_zhipu_quota", "query_serper_quota",
         ):
             await set_enabled(name)
 
@@ -92,7 +94,7 @@ class TavilyQuotaPlugin(Star):
                 umo=event.unified_msg_origin if event is not None else None
             )
         except Exception:
-            logger.warning("[tavily_quota] 无法通过配置接口获取当前会话配置。")
+            logger.warning("[api_quota] 无法通过配置接口获取当前会话配置。")
             return {}
 
     @staticmethod
@@ -128,10 +130,10 @@ class TavilyQuotaPlugin(Star):
                     if isinstance(data, dict):
                         return data
                 log = logger.debug if optional else logger.warning
-                log(f"[tavily_quota] {service} 查询不可用，HTTP {response.status}。")
+                log(f"[api_quota] {service} 查询不可用，HTTP {response.status}。")
         except Exception:
             log = logger.debug if optional else logger.warning
-            log(f"[tavily_quota] {service} 查询失败，可能是网络、超时或响应格式异常。")
+            log(f"[api_quota] {service} 查询失败，可能是网络、超时或响应格式异常。")
         return None
 
     def _render_progress_bar(
@@ -162,7 +164,7 @@ class TavilyQuotaPlugin(Star):
         try:
             return render_quota_dashboard(cards, title=title)
         except Exception as e:
-            logger.warning(f"[tavily_quota] 生成图片看板失败，将降级文本: {e}")
+            logger.warning(f"[api_quota] 生成图片看板失败，将降级文本: {e}")
             return None
 
     def _card_tavily(self, key: str, data: dict | None) -> ServiceCardData:
@@ -348,6 +350,186 @@ class TavilyQuotaPlugin(Star):
             progress_ratio=ratio,
         )
 
+    def _card_siliconflow(self, key: str, data: dict | None) -> ServiceCardData:
+        mask = self._mask_key(key)
+        if not data:
+            return ServiceCardData(
+                service="siliconflow",
+                key_masked=mask,
+                status="error",
+                primary_metric="查询失败",
+                primary_label="可用余额",
+                details=["凭据过期或接口异常"],
+            )
+        try:
+            total = float(data.get("totalBalance", 0.0))
+            charge = float(data.get("chargeBalance", 0.0))
+            grant = float(data.get("balance", 0.0))
+        except Exception:
+            total = charge = grant = 0.0
+        status_raw = str(data.get("status", "normal")).lower()
+
+        thresholds = self.config.get("alert_thresholds", {}) or {}
+        threshold = float(thresholds.get("siliconflow_min_balance", 5.0))
+        if status_raw not in ("normal", "ok", "active"):
+            status = "danger"
+        elif total <= threshold:
+            status = "warn"
+        else:
+            status = "ok"
+
+        details = [
+            f"充值: ¥{charge:.2f} · 赠送: ¥{grant:.2f}",
+            f"账户状态: {'正常' if status_raw in ('normal', 'ok', 'active') else status_raw}",
+        ]
+        return ServiceCardData(
+            service="siliconflow",
+            key_masked=mask,
+            status=status,
+            primary_metric=f"¥{total:.2f}",
+            primary_label="可用总余额",
+            details=details,
+            progress_ratio=None,
+        )
+
+    def _card_moonshot(self, key: str, data: dict | None) -> ServiceCardData:
+        mask = self._mask_key(key)
+        if not data:
+            return ServiceCardData(
+                service="moonshot",
+                key_masked=mask,
+                status="error",
+                primary_metric="查询失败",
+                primary_label="可用余额",
+                details=["凭据过期或接口异常"],
+            )
+        try:
+            avail = float(data.get("available_balance", 0.0))
+            cash = float(data.get("cash_balance", 0.0))
+            voucher = float(data.get("voucher_balance", 0.0))
+        except Exception:
+            avail = cash = voucher = 0.0
+
+        thresholds = self.config.get("alert_thresholds", {}) or {}
+        threshold = float(thresholds.get("moonshot_min_balance", 5.0))
+        status = "warn" if avail <= threshold else "ok"
+
+        details = [
+            f"现金余额: ¥{cash:.2f}",
+            f"代金券余额: ¥{voucher:.2f}",
+        ]
+        return ServiceCardData(
+            service="moonshot",
+            key_masked=mask,
+            status=status,
+            primary_metric=f"¥{avail:.2f}",
+            primary_label="可用余额",
+            details=details,
+            progress_ratio=None,
+        )
+
+    def _card_zhipu(self, key: str, data: dict | None) -> ServiceCardData:
+        mask = self._mask_key(key)
+        if not data:
+            return ServiceCardData(
+                service="zhipu",
+                key_masked=mask,
+                status="error",
+                primary_metric="查询失败",
+                primary_label="状态",
+                details=["凭据过期或接口异常"],
+            )
+        coding_plan = data.get("coding_plan")
+        account = data.get("account")
+
+        thresholds = self.config.get("alert_thresholds", {}) or {}
+        threshold = float(thresholds.get("zhipu_min_balance", 5.0))
+
+        status = "ok"
+        ratio = None
+        details = []
+
+        if isinstance(account, dict) and any(k in account for k in ("availableBalance", "balance", "totalBalance")):
+            try:
+                avail = float(account.get("availableBalance") or account.get("balance") or 0.0)
+            except Exception:
+                avail = 0.0
+            primary_metric = f"¥{avail:.2f}"
+            primary_label = "现金余额"
+            if avail <= threshold:
+                status = "warn"
+            if "totalBalance" in account:
+                details.append(f"总资产: ¥{float(account.get('totalBalance', 0.0)):.2f}")
+        elif isinstance(coding_plan, dict) and "limits" in coding_plan:
+            level = coding_plan.get("level", "标准")
+            primary_label = f"Coding Plan ({level})"
+            limits = coding_plan.get("limits", [])
+            primary_metric = "生效中"
+            for lim in limits:
+                lim_type = lim.get("type", "")
+                if lim_type == "TOKENS_LIMIT" or "TOKEN" in lim_type:
+                    rem = lim.get("remaining")
+                    tot = lim.get("total")
+                    pct = lim.get("percentage", 0)
+                    if rem is not None and tot:
+                        primary_metric = f"{rem:,} / {tot:,}"
+                        ratio = float(pct) / 100.0 if pct else None
+                    reset_ts = lim.get("nextResetTime")
+                    if reset_ts:
+                        try:
+                            t_str = datetime.fromtimestamp(reset_ts / 1000).astimezone().strftime("%H:%M 重置")
+                            details.append(f"5小时窗口重置: {t_str}")
+                        except Exception:
+                            pass
+                    break
+        else:
+            primary_metric = "正常"
+            primary_label = "服务状态"
+
+        if not details:
+            details.append("智谱开放平台 API 正常连接")
+
+        return ServiceCardData(
+            service="zhipu",
+            key_masked=mask,
+            status=status,
+            primary_metric=primary_metric,
+            primary_label=primary_label,
+            details=details,
+            progress_ratio=ratio,
+        )
+
+    def _card_serper(self, key: str, data: dict | None) -> ServiceCardData:
+        mask = self._mask_key(key)
+        if not data:
+            return ServiceCardData(
+                service="serper",
+                key_masked=mask,
+                status="error",
+                primary_metric="查询失败",
+                primary_label="剩余搜索额度",
+                details=["API Key 无效或请求失败"],
+            )
+        try:
+            credits = int(data.get("credits", 0))
+        except Exception:
+            credits = 0
+
+        thresholds = self.config.get("alert_thresholds", {}) or {}
+        threshold = int(thresholds.get("serper_min_credits", 100))
+        status = "warn" if credits <= threshold else "ok"
+
+        return ServiceCardData(
+            service="serper",
+            key_masked=mask,
+            status=status,
+            primary_metric=f"{credits:,} 次",
+            primary_label="剩余搜索额度",
+            details=["Google 搜索 API (Serper.dev)"],
+            progress_ratio=None,
+        )
+
+
     # ──────────────────────────────────────
     #  OpenRouter 相关方法
     # ──────────────────────────────────────
@@ -394,11 +576,11 @@ class TavilyQuotaPlugin(Star):
                             result["key_info"] = key_data.get("data", {})
                         else:
                             logger.error(
-                                "[tavily_quota] OpenRouter Key 查询失败，"
+                                "[api_quota] OpenRouter Key 查询失败，"
                                 f"HTTP {resp.status}。"
                             )
                 except Exception:
-                    logger.error("[tavily_quota] 请求 OpenRouter Key API 异常。")
+                    logger.error("[api_quota] 请求 OpenRouter Key API 异常。")
 
                 try:
                     async with session.get(
@@ -410,19 +592,19 @@ class TavilyQuotaPlugin(Star):
                             result["credits"] = cred_data.get("data", {})
                         else:
                             logger.error(
-                                "[tavily_quota] OpenRouter Credits 查询失败，"
+                                "[api_quota] OpenRouter Credits 查询失败，"
                                 f"HTTP {resp.status}。"
                             )
                 except Exception:
                     logger.error(
-                        "[tavily_quota] 请求 OpenRouter Credits API 异常。"
+                        "[api_quota] 请求 OpenRouter Credits API 异常。"
                     )
 
             if not result.get("key_info") and not result.get("credits"):
                 return None
             return result
         except Exception:
-            logger.error("[tavily_quota] 请求 OpenRouter API 出现异常。")
+            logger.error("[api_quota] 请求 OpenRouter API 出现异常。")
             return None
 
     def _format_openrouter_message(
@@ -547,11 +729,11 @@ class TavilyQuotaPlugin(Star):
                         return await resp.json()
                     else:
                         logger.error(
-                            f"[tavily_quota] Tavily 查询失败，HTTP {resp.status}。"
+                            f"[api_quota] Tavily 查询失败，HTTP {resp.status}。"
                         )
                         return None
         except Exception:
-            logger.error("[tavily_quota] 请求 Tavily API 出现异常。")
+            logger.error("[api_quota] 请求 Tavily API 出现异常。")
             return None
 
     def _format_quota_message(
@@ -599,7 +781,7 @@ class TavilyQuotaPlugin(Star):
         return "\n".join(lines)
 
     @filter.command("tavily", alias={"tav"})
-    async def query_quota_command(self, event: AstrMessageEvent, *args):
+    async def query_quota_command(self, event: AstrMessageEvent, arg: str = ""):
         '''查询 Tavily 搜索引擎 API 的额度与使用情况'''
         if not self._can_query(event):
             yield event.plain_result("⚠️ 当前仅管理员可查询 Tavily 额度。")
@@ -610,7 +792,7 @@ class TavilyQuotaPlugin(Star):
             yield event.plain_result("❌ 未检测到 Tavily API Key，请在插件配置或全局配置中设置。")
             return
 
-        arg_str = " ".join(str(a) for a in args).lower()
+        arg_str = str(arg).lower()
         force_text = "text" in arg_str
         force_img = ("img" in arg_str) or ("card" in arg_str) or ("pic" in arg_str)
 
@@ -636,7 +818,7 @@ class TavilyQuotaPlugin(Star):
             yield event.plain_result(msg)
 
     @filter.command("openrouter", alias={"open", "openrouter额度"})
-    async def query_openrouter_command(self, event: AstrMessageEvent, *args):
+    async def query_openrouter_command(self, event: AstrMessageEvent, arg: str = ""):
         '''查询 OpenRouter API 的额度与使用情况'''
         if not self._can_query(event):
             yield event.plain_result("⚠️ 当前仅管理员可查询 OpenRouter 额度。")
@@ -649,7 +831,7 @@ class TavilyQuotaPlugin(Star):
             )
             return
 
-        arg_str = " ".join(str(a) for a in args).lower()
+        arg_str = str(arg).lower()
         force_text = "text" in arg_str
         force_img = ("img" in arg_str) or ("card" in arg_str) or ("pic" in arg_str)
 
@@ -739,7 +921,7 @@ class TavilyQuotaPlugin(Star):
                     headers, "DeepSeek",
                 )
         except Exception:
-            logger.warning("[tavily_quota] DeepSeek 请求初始化失败。")
+            logger.warning("[api_quota] DeepSeek 请求初始化失败。")
             return None
         if data is not None and isinstance(data.get("balance_infos"), list):
             return data
@@ -831,7 +1013,7 @@ class TavilyQuotaPlugin(Star):
                     ) != "未知":
                         result["actions"] = actions
         except Exception:
-            logger.warning("[tavily_quota] GitHub 请求未完整完成，保留已有查询结果。")
+            logger.warning("[api_quota] GitHub 请求未完整完成，保留已有查询结果。")
         return result or None
 
     def _format_github_message(self, token: str, data: dict) -> str:
@@ -870,6 +1052,274 @@ class TavilyQuotaPlugin(Star):
                 lines.append("包含分钟数未返回，2000 为兼容默认值，并非已核实套餐额度。")
         return "\n".join(lines)
 
+
+    # ──────────────────────────────────────
+    #  SiliconFlow (硅基流动) 相关方法
+    # ──────────────────────────────────────
+
+    def _get_siliconflow_keys(
+        self, event: AstrMessageEvent | None = None,
+    ) -> list[str]:
+        keys = self._normalize_keys(self.config.get("siliconflow_api_keys", []))
+        if keys:
+            return keys
+        data = self._get_framework_config(event)
+        sources = data.get("provider_sources", [])
+        for source in sources if isinstance(sources, list) else []:
+            if not isinstance(source, dict) or not source.get("enable", True):
+                continue
+            if any(
+                "silicon" in str(source.get(field, "")).lower()
+                for field in ("provider", "type")
+            ):
+                keys.extend(self._normalize_keys(source.get("key", [])))
+        return list(dict.fromkeys(keys)) or self._normalize_keys(
+            os.environ.get("SILICONFLOW_API_KEY", "") or os.environ.get("SILICON_API_KEY", "")
+        )
+
+    async def _fetch_siliconflow_quota(self, api_key: str) -> dict | None:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json",
+        }
+        try:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as session:
+                data = await self._get_json(
+                    session, "https://api.siliconflow.cn/v1/user/info",
+                    headers, "SiliconFlow",
+                )
+        except Exception:
+            logger.warning("[api_quota] SiliconFlow 请求初始化失败。")
+            return None
+        if isinstance(data, dict):
+            sub = data.get("data")
+            if isinstance(sub, dict):
+                return sub
+            if "totalBalance" in data or "balance" in data:
+                return data
+        return None
+
+    def _format_siliconflow_message(self, api_key: str, data: dict) -> str:
+        try:
+            total = float(data.get("totalBalance", 0.0))
+            charge = float(data.get("chargeBalance", 0.0))
+            grant = float(data.get("balance", 0.0))
+        except Exception:
+            total = charge = grant = 0.0
+        status_raw = str(data.get("status", "normal"))
+        lines = [
+            "⚡ 【SiliconFlow (硅基流动) 余额】",
+            f"🔑 Key: {self._mask_key(api_key)}",
+            f"💰 可用总余额: ¥{total:.2f}",
+            f"💳 充值余额: ¥{charge:.2f}",
+            f"🎁 赠送体验金: ¥{grant:.2f}",
+            f"📌 账户状态: {status_raw}",
+        ]
+        return "\n".join(lines)
+
+    # ──────────────────────────────────────
+    #  Moonshot AI (Kimi) 相关方法
+    # ──────────────────────────────────────
+
+    def _get_moonshot_keys(
+        self, event: AstrMessageEvent | None = None,
+    ) -> list[str]:
+        keys = self._normalize_keys(self.config.get("moonshot_api_keys", []))
+        if keys:
+            return keys
+        data = self._get_framework_config(event)
+        sources = data.get("provider_sources", [])
+        for source in sources if isinstance(sources, list) else []:
+            if not isinstance(source, dict) or not source.get("enable", True):
+                continue
+            if any(
+                any(k in str(source.get(field, "")).lower() for k in ("moonshot", "kimi"))
+                for field in ("provider", "type")
+            ):
+                keys.extend(self._normalize_keys(source.get("key", [])))
+        return list(dict.fromkeys(keys)) or self._normalize_keys(
+            os.environ.get("MOONSHOT_API_KEY", "") or os.environ.get("KIMI_API_KEY", "")
+        )
+
+    async def _fetch_moonshot_quota(self, api_key: str) -> dict | None:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json",
+        }
+        try:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as session:
+                data = await self._get_json(
+                    session, "https://api.moonshot.cn/v1/users/me/balance",
+                    headers, "Moonshot",
+                )
+        except Exception:
+            logger.warning("[api_quota] Moonshot 请求初始化失败。")
+            return None
+        if isinstance(data, dict):
+            sub = data.get("data")
+            if isinstance(sub, dict):
+                return sub
+            if "available_balance" in data:
+                return data
+        return None
+
+    def _format_moonshot_message(self, api_key: str, data: dict) -> str:
+        try:
+            avail = float(data.get("available_balance", 0.0))
+            cash = float(data.get("cash_balance", 0.0))
+            voucher = float(data.get("voucher_balance", 0.0))
+        except Exception:
+            avail = cash = voucher = 0.0
+        lines = [
+            "🌙 【Moonshot AI (Kimi) 余额】",
+            f"🔑 Key: {self._mask_key(api_key)}",
+            f"💰 可用余额: ¥{avail:.2f}",
+            f"💵 充值现金: ¥{cash:.2f}",
+            f"🎫 优惠券/代金券: ¥{voucher:.2f}",
+        ]
+        return "\n".join(lines)
+
+    # ──────────────────────────────────────
+    #  Zhipu AI (GLM) 相关方法
+    # ──────────────────────────────────────
+
+    def _get_zhipu_keys(
+        self, event: AstrMessageEvent | None = None,
+    ) -> list[str]:
+        keys = self._normalize_keys(self.config.get("zhipu_api_keys", []))
+        if keys:
+            return keys
+        data = self._get_framework_config(event)
+        sources = data.get("provider_sources", [])
+        for source in sources if isinstance(sources, list) else []:
+            if not isinstance(source, dict) or not source.get("enable", True):
+                continue
+            if any(
+                any(k in str(source.get(field, "")).lower() for k in ("zhipu", "glm", "bigmodel"))
+                for field in ("provider", "type")
+            ):
+                keys.extend(self._normalize_keys(source.get("key", [])))
+        return list(dict.fromkeys(keys)) or self._normalize_keys(
+            os.environ.get("ZHIPUAI_API_KEY", "") or os.environ.get("ZHIPU_API_KEY", "") or os.environ.get("GLM_API_KEY", "")
+        )
+
+    async def _fetch_zhipu_quota(self, api_key: str) -> dict | None:
+        auth_header = api_key if api_key.startswith("Bearer ") else api_key
+        headers = {
+            "Authorization": auth_header,
+            "Accept": "application/json",
+        }
+        result = {}
+        try:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as session:
+                try:
+                    quota = await self._get_json(
+                        session, "https://open.bigmodel.cn/api/monitor/usage/quota/limit",
+                        headers, "Zhipu Quota", optional=True,
+                    )
+                    if isinstance(quota, dict) and quota.get("code") == 200:
+                        result["coding_plan"] = quota.get("data", {})
+                except Exception:
+                    pass
+
+                try:
+                    account = await self._get_json(
+                        session, "https://open.bigmodel.cn/api/biz/account/query-customer-account-report",
+                        headers, "Zhipu Account", optional=True,
+                    )
+                    if isinstance(account, dict) and account.get("code") == 200:
+                        result["account"] = account.get("data", {})
+                except Exception:
+                    pass
+        except Exception:
+            logger.warning("[api_quota] Zhipu 请求初始化失败。")
+            return None
+        return result or None
+
+    def _format_zhipu_message(self, api_key: str, data: dict) -> str:
+        lines = [
+            "✨ 【Zhipu AI (智谱/GLM) 配额与余额】",
+            f"🔑 Key: {self._mask_key(api_key)}",
+        ]
+        account = data.get("account")
+        if isinstance(account, dict):
+            avail = account.get("availableBalance") or account.get("balance")
+            if avail is not None:
+                lines.append(f"💰 现金余额: ¥{float(avail):.2f}")
+            if "totalBalance" in account:
+                lines.append(f"📊 总资产: ¥{float(account.get('totalBalance', 0.0)):.2f}")
+        coding = data.get("coding_plan")
+        if isinstance(coding, dict):
+            level = coding.get("level", "标准")
+            lines.append(f"📦 订阅套餐: {level}")
+            for lim in coding.get("limits", []):
+                lim_type = lim.get("type", "")
+                if "TOKEN" in lim_type:
+                    rem = lim.get("remaining")
+                    tot = lim.get("total")
+                    pct = lim.get("percentage")
+                    if rem is not None and tot is not None:
+                        lines.append(f"⏳ 5小时 Token 窗口: {rem:,} / {tot:,} ({pct}%)")
+        return "\n".join(lines)
+
+    # ──────────────────────────────────────
+    #  Serper (Google Search) 相关方法
+    # ──────────────────────────────────────
+
+    def _get_serper_keys(
+        self, event: AstrMessageEvent | None = None,
+    ) -> list[str]:
+        keys = self._normalize_keys(self.config.get("serper_api_keys", []))
+        if keys:
+            return keys
+        data = self._get_framework_config(event)
+        for k in ("websearch_serper_key", "serper_api_key", "serper_key"):
+            val = data.get(k)
+            if val:
+                keys.extend(self._normalize_keys(val))
+        return list(dict.fromkeys(keys)) or self._normalize_keys(
+            os.environ.get("SERPER_API_KEY", "")
+        )
+
+    async def _fetch_serper_quota(self, api_key: str) -> dict | None:
+        headers = {
+            "X-API-KEY": api_key,
+            "Accept": "application/json",
+        }
+        try:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as session:
+                data = await self._get_json(
+                    session, "https://google.serper.dev/credits",
+                    headers, "Serper",
+                )
+        except Exception:
+            logger.warning("[api_quota] Serper 请求初始化失败。")
+            return None
+        if isinstance(data, dict) and "credits" in data:
+            return data
+        return None
+
+    def _format_serper_message(self, api_key: str, data: dict) -> str:
+        try:
+            credits = int(data.get("credits", 0))
+        except Exception:
+            credits = 0
+        lines = [
+            "🔍 【Serper (Google 搜索) 配额】",
+            f"🔑 Key: {self._mask_key(api_key)}",
+            f"📊 剩余搜索次数: {credits:,} 次",
+            "🌐 服务: Google 搜索 API (Serper.dev)",
+        ]
+        return "\n".join(lines)
+
     # ──────────────────────────────────────
     #  聚合查询与指令分发
     # ──────────────────────────────────────
@@ -896,11 +1346,42 @@ class TavilyQuotaPlugin(Star):
                 self._get_github_tokens, self._fetch_github_quota,
                 self._format_github_message,
             ),
+            "siliconflow": (
+                self._get_siliconflow_keys, self._fetch_siliconflow_quota,
+                self._format_siliconflow_message,
+            ),
+            "moonshot": (
+                self._get_moonshot_keys, self._fetch_moonshot_quota,
+                self._format_moonshot_message,
+            ),
+            "zhipu": (
+                self._get_zhipu_keys, self._fetch_zhipu_quota,
+                self._format_zhipu_message,
+            ),
+            "serper": (
+                self._get_serper_keys, self._fetch_serper_quota,
+                self._format_serper_message,
+            ),
+        }
+        alias_map = {
+            "tav": "tavily",
+            "open": "openrouter",
+            "deep": "deepseek",
+            "git": "github",
+            "sili": "siliconflow",
+            "silicon": "siliconflow",
+            "kimi": "moonshot",
+            "moonshot": "moonshot",
+            "glm": "zhipu",
+            "zhipu": "zhipu",
+            "serper": "serper",
         }
         service = service.strip().lower()
+        if service in alias_map:
+            service = alias_map[service]
         if service and service not in services:
             return (
-                "用法：/quota [tavily|openrouter|deepseek|github]；"
+                "用法：/quota [tavily|openrouter|deepseek|github|silicon|moonshot|glm|serper]；"
                 "不指定服务时查询全部已配置服务。"
             )
         blocks = []
@@ -920,7 +1401,7 @@ class TavilyQuotaPlugin(Star):
                         else "❌ 查询失败，请检查网络、凭据或接口状态。"
                     )
                 except Exception:
-                    logger.warning(f"[tavily_quota] {name} 查询或格式化失败，继续其他服务。")
+                    logger.warning(f"[api_quota] {name} 查询或格式化失败，继续其他服务。")
                     message = "❌ 查询失败，请检查网络、凭据或接口状态。"
                 blocks.append(title + "\n" + message)
         if not blocks:
@@ -935,8 +1416,27 @@ class TavilyQuotaPlugin(Star):
             "openrouter": (self._get_openrouter_keys, self._fetch_openrouter_quota, self._card_openrouter),
             "deepseek": (self._get_deepseek_keys, self._fetch_deepseek_quota, self._card_deepseek),
             "github": (self._get_github_tokens, self._fetch_github_quota, self._card_github),
+            "siliconflow": (self._get_siliconflow_keys, self._fetch_siliconflow_quota, self._card_siliconflow),
+            "moonshot": (self._get_moonshot_keys, self._fetch_moonshot_quota, self._card_moonshot),
+            "zhipu": (self._get_zhipu_keys, self._fetch_zhipu_quota, self._card_zhipu),
+            "serper": (self._get_serper_keys, self._fetch_serper_quota, self._card_serper),
+        }
+        alias_map = {
+            "tav": "tavily",
+            "open": "openrouter",
+            "deep": "deepseek",
+            "git": "github",
+            "sili": "siliconflow",
+            "silicon": "siliconflow",
+            "kimi": "moonshot",
+            "moonshot": "moonshot",
+            "glm": "zhipu",
+            "zhipu": "zhipu",
+            "serper": "serper",
         }
         service = service.strip().lower()
+        if service in alias_map:
+            service = alias_map[service]
         if service and service not in services:
             return []
 
@@ -1033,13 +1533,13 @@ class TavilyQuotaPlugin(Star):
         yield event.plain_result(await self._query_services(event, clean_service))
 
     @filter.command("deepseek", alias={"deep"})
-    async def query_deepseek_command(self, event: AstrMessageEvent, *args):
+    async def query_deepseek_command(self, event: AstrMessageEvent, arg: str = ""):
         """查询 DeepSeek 余额。"""
         if not self._can_query(event):
             yield event.plain_result("⚠️ 当前仅管理员可查询 API 额度。")
             return
 
-        arg_str = " ".join(str(a) for a in args).lower()
+        arg_str = str(arg).lower()
         force_text = "text" in arg_str
         force_img = ("img" in arg_str) or ("card" in arg_str) or ("pic" in arg_str)
 
@@ -1061,13 +1561,13 @@ class TavilyQuotaPlugin(Star):
         yield event.plain_result(await self._query_services(event, "deepseek"))
 
     @filter.command("github", alias={"git"})
-    async def query_github_command(self, event: AstrMessageEvent, *args):
+    async def query_github_command(self, event: AstrMessageEvent, arg: str = ""):
         """查询 GitHub API Rate Limit 及可获取的 Actions 配额。"""
         if not self._can_query(event):
             yield event.plain_result("⚠️ 当前仅管理员可查询 API 额度。")
             return
 
-        arg_str = " ".join(str(a) for a in args).lower()
+        arg_str = str(arg).lower()
         force_text = "text" in arg_str
         force_img = ("img" in arg_str) or ("card" in arg_str) or ("pic" in arg_str)
 
@@ -1133,3 +1633,136 @@ class TavilyQuotaPlugin(Star):
                 results.append("OpenRouter Key 额度查询失败。")
 
         return "\n\n".join(results)
+
+
+    @filter.command("silicon", alias={"sili"})
+    async def query_siliconflow_command(self, event: AstrMessageEvent, arg: str = ""):
+        """查询 SiliconFlow (硅基流动) 余额。"""
+        if not self._can_query(event):
+            yield event.plain_result("⚠️ 当前仅管理员可查询 API 额度。")
+            return
+
+        arg_str = str(arg).lower()
+        force_text = "text" in arg_str
+        force_img = ("img" in arg_str) or ("card" in arg_str) or ("pic" in arg_str)
+
+        keys = self._get_siliconflow_keys(event)
+        if not keys:
+            yield event.plain_result("❌ 未检测到 siliconflow 配置的 API Key。")
+            return
+
+        if self._should_render_card(event, force_img=force_img, force_text=force_text):
+            cards = []
+            for key in keys:
+                data = await self._fetch_siliconflow_quota(key)
+                cards.append(self._card_siliconflow(key, data))
+            img_path = self._render_card_safe(cards, title="SiliconFlow 余额看板")
+            if img_path:
+                yield event.image_result(img_path)
+                return
+
+        yield event.plain_result(await self._query_services(event, "siliconflow"))
+
+    @filter.command("moonshot", alias={"kimi"})
+    async def query_moonshot_command(self, event: AstrMessageEvent, arg: str = ""):
+        """查询 Moonshot AI (Kimi) 余额。"""
+        if not self._can_query(event):
+            yield event.plain_result("⚠️ 当前仅管理员可查询 API 额度。")
+            return
+
+        arg_str = str(arg).lower()
+        force_text = "text" in arg_str
+        force_img = ("img" in arg_str) or ("card" in arg_str) or ("pic" in arg_str)
+
+        keys = self._get_moonshot_keys(event)
+        if not keys:
+            yield event.plain_result("❌ 未检测到 moonshot/kimi 配置的 API Key。")
+            return
+
+        if self._should_render_card(event, force_img=force_img, force_text=force_text):
+            cards = []
+            for key in keys:
+                data = await self._fetch_moonshot_quota(key)
+                cards.append(self._card_moonshot(key, data))
+            img_path = self._render_card_safe(cards, title="Moonshot 余额看板")
+            if img_path:
+                yield event.image_result(img_path)
+                return
+
+        yield event.plain_result(await self._query_services(event, "moonshot"))
+
+    @filter.command("glm")
+    async def query_zhipu_command(self, event: AstrMessageEvent, arg: str = ""):
+        """查询 Zhipu AI (智谱/GLM) 配额与余额。"""
+        if not self._can_query(event):
+            yield event.plain_result("⚠️ 当前仅管理员可查询 API 额度。")
+            return
+
+        arg_str = str(arg).lower()
+        force_text = "text" in arg_str
+        force_img = ("img" in arg_str) or ("card" in arg_str) or ("pic" in arg_str)
+
+        keys = self._get_zhipu_keys(event)
+        if not keys:
+            yield event.plain_result("❌ 未检测到 zhipu/glm 配置的 API Key。")
+            return
+
+        if self._should_render_card(event, force_img=force_img, force_text=force_text):
+            cards = []
+            for key in keys:
+                data = await self._fetch_zhipu_quota(key)
+                cards.append(self._card_zhipu(key, data))
+            img_path = self._render_card_safe(cards, title="Zhipu AI 配额看板")
+            if img_path:
+                yield event.image_result(img_path)
+                return
+
+        yield event.plain_result(await self._query_services(event, "zhipu"))
+
+    @filter.command("serper")
+    async def query_serper_command(self, event: AstrMessageEvent, arg: str = ""):
+        """查询 Serper (Google 搜索 API) 剩余配额。"""
+        if not self._can_query(event):
+            yield event.plain_result("⚠️ 当前仅管理员可查询 API 额度。")
+            return
+
+        arg_str = str(arg).lower()
+        force_text = "text" in arg_str
+        force_img = ("img" in arg_str) or ("card" in arg_str) or ("pic" in arg_str)
+
+        keys = self._get_serper_keys(event)
+        if not keys:
+            yield event.plain_result("❌ 未检测到 serper 配置的 API Key。")
+            return
+
+        if self._should_render_card(event, force_img=force_img, force_text=force_text):
+            cards = []
+            for key in keys:
+                data = await self._fetch_serper_quota(key)
+                cards.append(self._card_serper(key, data))
+            img_path = self._render_card_safe(cards, title="Serper 配额看板")
+            if img_path:
+                yield event.image_result(img_path)
+                return
+
+        yield event.plain_result(await self._query_services(event, "serper"))
+
+    @filter.llm_tool(name="query_siliconflow_quota")
+    async def query_siliconflow_quota_tool(self, event: AstrMessageEvent | None = None) -> str:
+        """查询 SiliconFlow (硅基流动) 的总余额、充值余额、赠送体验金与账户状态。"""
+        return await self._query_new_tool(event, "siliconflow")
+
+    @filter.llm_tool(name="query_moonshot_quota")
+    async def query_moonshot_quota_tool(self, event: AstrMessageEvent | None = None) -> str:
+        """查询 Moonshot AI (Kimi) 的可用余额、现金余额与代金券余额。"""
+        return await self._query_new_tool(event, "moonshot")
+
+    @filter.llm_tool(name="query_zhipu_quota")
+    async def query_zhipu_quota_tool(self, event: AstrMessageEvent | None = None) -> str:
+        """查询 Zhipu AI (智谱/GLM) 的账户余额或 Coding Plan 订阅配额使用情况。"""
+        return await self._query_new_tool(event, "zhipu")
+
+    @filter.llm_tool(name="query_serper_quota")
+    async def query_serper_quota_tool(self, event: AstrMessageEvent | None = None) -> str:
+        """查询 Serper (Google 网页搜索 API) 的剩余可用调用次数配额。"""
+        return await self._query_new_tool(event, "serper")
