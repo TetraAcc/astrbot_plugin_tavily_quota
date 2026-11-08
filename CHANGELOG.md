@@ -1,5 +1,26 @@
 # 更新日志
 
+## v1.3.0 — 2026-11-08
+
+### 新增
+
+- **高颜值暗色仪表盘图片看板**：
+  - 基于 Pillow 纯 Python 绘制，零外部浏览器/无头驱动依赖，跨平台字体优雅回退。
+  - 汇总查询（`/quota`）及单服务指令（`/tav`、`/open`、`/deep`、`/git`）均支持出图。
+  - 采用现代暗色卡片布局，包含各服务品牌色条、健康状态指示灯（🟢 充裕 / 🟡 偏低 / 🔴 见底或失效）以及圆角进度条。
+  - 出图失败或未安装绘图库时 100% 优雅降级为纯文本，并支持追加 `text` 参数强制纯文本输出。
+- **低额度后台自动巡检与主动预警**：
+  - 后台周期巡检 DeepSeek（默认 < ¥5.0）、OpenRouter（默认 < $1.0）、Tavily（默认 < 100 次）与 GitHub（默认 < 500 次）额度。
+  - 支持 `/quota alert here` 一键绑定当前聊天会话并开启推送，避免手动填写 UMO 会话标识。
+  - 支持 `/quota alert check` 随时手动执行巡检测试，以及 `/quota alert off` 一键关闭。
+  - 告警状态去重防刷屏机制，低额度未进一步恶化时不重复轰炸。
+
+### 调整与优化
+
+- 扩展 `_conf_schema.json`，新增 `render_image`、`enable_alert`、`alert_interval_hours`、`alert_notify_target` 与 `alert_thresholds` 配置项。
+- 升级 `metadata.yaml` 版本至 `v1.3.0`。
+- 新增单元测试 `tests/test_card_and_alert.py`，全套 41 项回归测试全部通过。
+
 ## v1.2.1 — 2026-10-31
 
 - Tavily 保留 `/tav`、`/tavily` 一短一长两个入口，删除 `/tavily额度` 和 `/查额度`。

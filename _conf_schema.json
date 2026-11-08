@@ -34,5 +34,40 @@
     "type": "bool",
     "default": true,
     "hint": "关闭后停用四个 LLM 额度查询工具；斜杠命令仍可使用，且均遵循管理员限制。保存后重载插件生效。"
+  },
+  "render_image": {
+    "description": "启用图片看板模式",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后指令优先生成现代化暗色卡片图片；出图异常或未安装 Pillow 时自动降级为文本。支持在指令后加 text 强制纯文本输出。"
+  },
+  "enable_alert": {
+    "description": "启用低额度自动巡检与预警",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后在后台定时检查 DeepSeek、OpenRouter、Tavily 与 GitHub 额度，低于阈值时向指定目标推送提醒。"
+  },
+  "alert_interval_hours": {
+    "description": "预警巡检周期（小时）",
+    "type": "float",
+    "default": 12.0,
+    "hint": "后台定期巡检的时间间隔（小时），建议 6 ~ 24 小时之间。"
+  },
+  "alert_notify_target": {
+    "description": "预警消息推送目标（UMO 会话标识）",
+    "type": "string",
+    "default": "",
+    "hint": "接收预警通知的会话标识。也可在聊天中由管理员发送 /quota alert here 快捷绑定当前会话。"
+  },
+  "alert_thresholds": {
+    "description": "各平台预警触发阈值",
+    "type": "object",
+    "default": {
+      "deepseek_min_balance": 5.0,
+      "openrouter_min_balance": 1.0,
+      "tavily_min_remaining": 100,
+      "github_min_remaining": 500
+    },
+    "hint": "当余额或剩余配额小于等于设定值时触发告警。"
   }
 }

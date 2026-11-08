@@ -1,56 +1,63 @@
-# API 额度查询
+# API 额度查询 (Tavily / OpenRouter / DeepSeek / GitHub)
 
-当前版本：**v1.2.1** · [更新日志](CHANGELOG.md)
+当前版本：**v1.3.0** · [更新日志](CHANGELOG.md)
 
-支持多个 Key、自然语言查询和管理员权限控制。
+支持多个 Key、暗色图片看板、低额度自动预警、自然语言查询和管理员权限控制。
 
 ## 指令与功能
 
-| 服务 | 指令 | 查询内容 |
-| --- | --- | --- |
-| Tavily | `/tav`、`/tavily` | 套餐、已用与剩余额度 |
-| OpenRouter | `/open`、`/openrouter` | 账户余额、消费和 Key 预算 |
-| DeepSeek | `/deep`、`/deepseek` | 可用状态、币种、总余额、充值余额和体验金 |
-| GitHub | `/git`、`/github` | Core API 剩余次数、配额和重置时间 |
-| 全部服务 | `/quota` | 汇总已配置服务，跳过未配置项 |
+| 服务 | 指令 | 查询内容 | 说明 |
+| --- | --- | --- | --- |
+| Tavily | `/tav`、`/tavily` | 套餐、已用与剩余额度 | 支持 `/tav img` 或 `/tav text` |
+| OpenRouter | `/open`、`/openrouter` | 账户余额、消费和 Key 预算 | 支持 `/open img` 或 `/open text` |
+| DeepSeek | `/deep`、`/deepseek` | 可用状态、币种、总余额、充值金和体验金 | 支持 `/deep img` 或 `/deep text` |
+| GitHub | `/git`、`/github` | Core API 剩余次数、配额和重置时间 | 支持 `/git img` 或 `/git text` |
+| 全部服务 | `/quota` | 汇总已配置服务看板 | 默认渲染高颜值仪表盘图片 |
+| 额度预警 | `/quota alert here` | 绑定当前聊天会话并开启低额度预警 | 管理员指令 |
+| 预警测试 | `/quota alert check` | 立即执行一次额度巡检并汇报结果 | 管理员指令 |
+| 关闭预警 | `/quota alert off` | 停止自动巡检与预警 | 管理员指令 |
 
-开启 LLM 工具后，也可直接询问“查一下 DeepSeek 余额”等，由模型调用查询工具。
+> 💡 **提示**：
+> 1. 开启 LLM 工具后，可直接向机器人提问“查一下 DeepSeek 余额”或“Tavily 还能搜几次”，大模型将自动调用工具返回文本。
+> 2. 默认在支持发送图片的平台上优先呈现**暗色仪表盘卡片图**，若需纯文本可在任意指令后加 `text`（例如 `/quota text`）。
 
-## 配置
+---
+
+## 🔔 低额度主动巡检与预警
+
+无需人工时常查询，插件可在后台定时自动巡检各服务余额：
+- **快捷绑定**：管理员在目标群或私聊窗口发送 `/quota alert here`，插件自动记录当前会话 `UMO` 并开启巡检。
+- **阈值监控**：
+  - DeepSeek 余额低于 **¥5.0**（可配）
+  - OpenRouter 余额低于 **$1.0**（可配）
+  - Tavily 剩余搜索次数低于 **100 次**（可配）
+  - GitHub Core API 剩余次数低于 **500 次**（可配）
+- **克制防扰**：低额度状态未恶化前不会在每个周期重复轰炸，安心护航机器人运行。
+
+---
+
+## 配置说明
 
 在 AstrBot WebUI 的插件配置页填写，保存后重载插件。
 
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `api_keys` | `[]` | Tavily Key 列表 |
-| `openrouter_api_keys` | `[]` | OpenRouter Key 列表 |
-| `deepseek_api_keys` | `[]` | DeepSeek Key 列表 |
-| `github_tokens` | `[]` | GitHub PAT 列表 |
+| `api_keys` | `[]` | Tavily Key 列表（留空自动读取会话配置或环境变量） |
+| `openrouter_api_keys` | `[]` | OpenRouter Key 列表（留空自动读取会话配置或环境变量） |
+| `deepseek_api_keys` | `[]` | DeepSeek Key 列表（留空自动读取当前启用的 Provider） |
+| `github_tokens` | `[]` | GitHub PAT 列表（仅读取专用配置或环境变量） |
+| `render_image` | `true` | 启用暗色图片看板（零外部浏览器依赖，异常自动降级为文本） |
+| `enable_alert` | `false` | 启用低额度后台自动巡检与预警推送 |
+| `alert_interval_hours` | `12.0` | 自动巡检间隔时间（小时） |
+| `alert_notify_target` | `""` | 预警通知接收会话（建议在会话中直接发 `/quota alert here` 自动绑定） |
+| `alert_thresholds` | 对象 | 各平台的预警数值阈值对象 |
 | `admin_only` | `false` | 仅限 AstrBot 管理员查询 |
 | `enable_llm_tool` | `true` | 启用四个自然语言查询工具；关闭不影响命令 |
 
-Key 留空时，Tavily、OpenRouter、DeepSeek 优先读取当前会话的对应配置，再读取 `TAVILY_API_KEY`、`OPENROUTER_API_KEY`、`DEEPSEEK_API_KEY` 环境变量。GitHub 依次读取 `GITHUB_TOKEN`、`GH_TOKEN`，不读取本机 Git 凭据。
+---
 
-## 说明
+## 安全规范与排障
 
-- 完整 Key/Token 不展示，新增服务仅显示脱敏片段。
-- 每个请求超时10秒；汇总查询中单项失败不影响其他结果。
-- GitHub Actions 旧计费接口已退役，附加信息不可用时只显示 API Rate Limit。
-
-## 常见问题 (Troubleshooting)
-
-### 1. 为什么查不到 DeepSeek 或 OpenRouter，提示未检测到 Key？
-- **会话配置隔离**：如果当前聊天会话绑定了特定的配置档（Profile / abconf），且该配置档内未启用对应提供商，插件按安全规范不会跨越会话读取未分配的凭据。
-- **提供商被禁用**：若大模型列表中该提供商被设为关闭状态（`enable: false`），自动探查会将其忽略。
-- **解决方法**：推荐在 WebUI 的本插件配置页直接填写 `deepseek_api_keys` 或 `openrouter_api_keys`，或设置系统环境变量（`DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY`），此时全会话均可稳定查询。
-
-### 2. 为什么查不到 GitHub 额度？
-- 插件出于安全规范，**绝不读取本机 Git 凭据（git-credential / .git-credentials）**。
-- **解决方法**：前往 GitHub Settings -> Developer Settings -> Personal Access Tokens 生成只读 Token，填入插件配置的 `github_tokens`，或设置系统环境变量 `GITHUB_TOKEN`。
-
-### 3. DeepSeek 查询失败或后台报 HTTP 401？
-- 说明所配置的 DeepSeek API Key 已过期、无效或已被重新生成。请登录 DeepSeek 开放平台控制台核验并更新密钥。
-
-### 4. 提示“当前仅管理员可查询”？
-- 检查插件配置项 `admin_only`。开启后仅 AstrBot 全局管理员（`admins_id` 名单内账号）有权查询；若希望所有人可用，将其设为 `false`。
-
+- **凭据脱敏**：任何输出均做掩码处理，日志不记录响应正文与密钥。
+- **安全隔离**：严格按会话（UMO）隔离凭据，**绝不读取**本机 Git 凭据（防止越权）。
+- **图片降级**：基于 Pillow 纯 Python 绘制，遇到字体缺失或未装图像库时，100% 优雅降级为纯文本，绝不抛出异常。

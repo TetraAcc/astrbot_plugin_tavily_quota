@@ -9,20 +9,36 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.core import AstrBotConfig
 
+import sys
+from pathlib import Path
+
+_plugin_dir = str(Path(__file__).resolve().parent)
+if _plugin_dir not in sys.path:
+    sys.path.insert(0, _plugin_dir)
+
+try:
+    from .alert_manager import QuotaAlertManager
+    from .card_renderer import ServiceCardData, render_quota_dashboard
+except ImportError:
+    # 兼容测试直接导入
+    from alert_manager import QuotaAlertManager
+    from card_renderer import ServiceCardData, render_quota_dashboard
+
 
 @register(
     "tavily_quota",
     "Tetra",
     "Tavily、OpenRouter、DeepSeek 与 GitHub 额度查询插件",
-    "1.2.1",
+    "1.3.0",
 )
 class TavilyQuotaPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
+        self.alert_manager = QuotaAlertManager(self, context, config)
 
     # ──────────────────────────────────────
-    #  OpenRouter 相关方法
+    #  生命周期与权限
     # ──────────────────────────────────────
 
     async def initialize(self):
@@ -41,8 +57,13 @@ class TavilyQuotaPlugin(Star):
 
     @filter.on_astrbot_loaded()
     async def on_astrbot_loaded(self):
-        # 框架启动时会恢复工具状态，完成后再次应用插件开关。
+        # 框架启动时恢复工具状态，并启动后台预警巡检
         await self.initialize()
+        self.alert_manager.start()
+
+    async def terminate(self):
+        """插件卸载时停止后台任务。"""
+        self.alert_manager.stop()
 
     def _can_query(self, event: AstrMessageEvent) -> bool:
         if not self.config.get("admin_only", False):
@@ -68,6 +89,263 @@ class TavilyQuotaPlugin(Star):
         except Exception:
             logger.warning("[tavily_quota] 无法通过配置接口获取当前会话配置。")
             return {}
+
+    @staticmethod
+    def _mask_key(key: str) -> str:
+        return f"{key[:4]}…{key[-4:]}" if len(key) > 12 else "***"
+
+    @staticmethod
+    def _amount(value: object) -> str:
+        """仅格式化有限数值，不把接口中的任意文字输出到聊天。"""
+        if value is None or isinstance(value, bool):
+            return "未知"
+        try:
+            number = Decimal(str(value))
+            return f"{number:.2f}" if number.is_finite() else "未知"
+        except (InvalidOperation, ValueError, TypeError):
+            return "未知"
+
+    @staticmethod
+    async def _get_json(
+        session: aiohttp.ClientSession,
+        url: str,
+        headers: dict[str, str],
+        service: str,
+        optional: bool = False,
+    ) -> dict | None:
+        """新服务共用的只读请求；不记录响应正文或凭据。"""
+        try:
+            async with session.get(
+                url, headers=headers, allow_redirects=False,
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if isinstance(data, dict):
+                        return data
+                log = logger.debug if optional else logger.warning
+                log(f"[tavily_quota] {service} 查询不可用，HTTP {response.status}。")
+        except Exception:
+            log = logger.debug if optional else logger.warning
+            log(f"[tavily_quota] {service} 查询失败，可能是网络、超时或响应格式异常。")
+        return None
+
+    def _render_progress_bar(
+        self, usage: int, limit: int, width: int = 10,
+    ) -> str:
+        if not limit or limit <= 0:
+            return ""
+        ratio = min(max(usage / limit, 0.0), 1.0)
+        filled = int(round(ratio * width))
+        empty = width - filled
+        pct = ratio * 100
+        return f"[{'■' * filled}{'□' * empty}] {pct:.1f}%"
+
+    # ──────────────────────────────────────
+    #  卡片渲染辅助与适配
+    # ──────────────────────────────────────
+
+    def _should_render_card(self, event: AstrMessageEvent, force_img: bool = False, force_text: bool = False) -> bool:
+        if force_text:
+            return False
+        if not hasattr(event, "image_result"):
+            return False
+        if force_img:
+            return True
+        return bool(self.config.get("render_image", False))
+
+    def _render_card_safe(self, cards: list[ServiceCardData], title: str = "API 配额看板") -> str | None:
+        try:
+            return render_quota_dashboard(cards, title=title)
+        except Exception as e:
+            logger.warning(f"[tavily_quota] 生成图片看板失败，将降级文本: {e}")
+            return None
+
+    def _card_tavily(self, key: str, data: dict | None) -> ServiceCardData:
+        mask = self._mask_key(key)
+        if not data:
+            return ServiceCardData(
+                service="tavily",
+                key_masked=mask,
+                status="error",
+                primary_metric="查询失败",
+                primary_label="剩余配额",
+                details=["网络超时或 Key 无效"],
+            )
+        acc = data.get("account", {})
+        plan = acc.get("current_plan", "标准套餐")
+        limit = acc.get("plan_limit")
+        usage = acc.get("plan_usage", 0)
+        rem = (limit - usage) if limit is not None else None
+        search_cnt = acc.get("search_usage", 0)
+
+        thresholds = self.config.get("alert_thresholds", {}) or {}
+        threshold = int(thresholds.get("tavily_min_remaining", 100))
+        status = "warn" if (rem is not None and rem <= threshold) else "ok"
+
+        primary_metric = f"{rem:,} 次" if rem is not None else f"{usage:,} 次"
+        primary_label = "剩余配额" if rem is not None else "已用次数"
+        progress = (usage / limit) if limit and limit > 0 else None
+
+        details = [f"套餐: {plan}", f"已用: {usage:,} 次", f"搜索: {search_cnt:,} 次"]
+        return ServiceCardData(
+            service="tavily",
+            key_masked=mask,
+            status=status,
+            primary_metric=primary_metric,
+            primary_label=primary_label,
+            details=details,
+            progress_ratio=progress,
+        )
+
+    def _card_openrouter(self, key: str, data: dict | None) -> ServiceCardData:
+        mask = self._mask_key(key)
+        if not data:
+            return ServiceCardData(
+                service="openrouter",
+                key_masked=mask,
+                status="error",
+                primary_metric="查询失败",
+                primary_label="可用余额",
+                details=["请求异常或 Key 无效"],
+            )
+        k_info = data.get("key_info", {})
+        credits_info = data.get("credits", {})
+        total_credits = credits_info.get("total_credits")
+        total_usage = credits_info.get("total_usage", 0.0)
+
+        bal = 0.0
+        if total_credits is not None:
+            bal = max(0.0, float(total_credits) - float(total_usage))
+            metric = f"${bal:.4f}"
+            lbl = "可用余额"
+            ratio = (total_usage / total_credits) if total_credits > 0 else None
+        else:
+            budget = k_info.get("effective_budget", {})
+            rem = budget.get("remaining_usd")
+            metric = f"${rem:.4f}" if rem is not None else "无限制"
+            lbl = "Key 剩余额度"
+            ratio = None
+
+        thresholds = self.config.get("alert_thresholds", {}) or {}
+        threshold = float(thresholds.get("openrouter_min_balance", 1.0))
+        status = "warn" if bal <= threshold else "ok"
+
+        is_free = k_info.get("is_free_tier", False)
+        usage_daily = k_info.get("usage_daily", 0.0)
+        details = [
+            f"类型: {'免费版' if is_free else '付费版'}",
+            f"总充值: ${total_credits:.2f}" if total_credits is not None else "额度无限制",
+            f"今日消费: ${usage_daily:.4f}",
+        ]
+        return ServiceCardData(
+            service="openrouter",
+            key_masked=mask,
+            status=status,
+            primary_metric=metric,
+            primary_label=lbl,
+            details=details,
+            progress_ratio=ratio,
+        )
+
+    def _card_deepseek(self, key: str, data: dict | None) -> ServiceCardData:
+        mask = self._mask_key(key)
+        if not data:
+            return ServiceCardData(
+                service="deepseek",
+                key_masked=mask,
+                status="error",
+                primary_metric="查询失败",
+                primary_label="可用余额",
+                details=["凭据过期或接口异常"],
+            )
+        available = data.get("is_available")
+        infos = [row for row in data.get("balance_infos", []) if isinstance(row, dict)]
+        total = 0.0
+        topped = 0.0
+        granted = 0.0
+        currency = "CNY"
+        if infos:
+            row = infos[0]
+            try:
+                total = float(row.get("total_balance", 0.0))
+                topped = float(row.get("topped_up_balance", 0.0))
+                granted = float(row.get("granted_balance", 0.0))
+                currency = row.get("currency", "CNY")
+            except Exception:
+                pass
+        symbol = "¥" if currency == "CNY" else "$"
+
+        thresholds = self.config.get("alert_thresholds", {}) or {}
+        threshold = float(thresholds.get("deepseek_min_balance", 5.0))
+        if available is False:
+            status = "danger"
+        elif total <= threshold:
+            status = "warn"
+        else:
+            status = "ok"
+
+        details = [
+            f"充值: {symbol}{topped:.2f}",
+            f"赠送金: {symbol}{granted:.2f}",
+            f"状态: {'可用' if available else '异常'}",
+        ]
+        return ServiceCardData(
+            service="deepseek",
+            key_masked=mask,
+            status=status,
+            primary_metric=f"{symbol}{total:.2f}",
+            primary_label="可用余额",
+            details=details,
+            progress_ratio=None,
+        )
+
+    def _card_github(self, token: str, data: dict | None) -> ServiceCardData:
+        mask = self._mask_key(token)
+        if not data:
+            return ServiceCardData(
+                service="github",
+                key_masked=mask,
+                status="error",
+                primary_metric="查询失败",
+                primary_label="Core API 剩余",
+                details=["Token 无效或权限不足"],
+            )
+        core = data.get("core", {})
+        rem = core.get("remaining", 0)
+        limit = core.get("limit", 5000)
+        reset_stamp = core.get("reset")
+        reset_str = "未知"
+        if type(reset_stamp) in (int, float):
+            try:
+                reset_str = datetime.fromtimestamp(reset_stamp).astimezone().strftime("%H:%M:%S 重置")
+            except Exception:
+                pass
+
+        thresholds = self.config.get("alert_thresholds", {}) or {}
+        threshold = int(thresholds.get("github_min_remaining", 500))
+        status = "warn" if (rem is not None and rem <= threshold) else "ok"
+        ratio = (1.0 - (rem / limit)) if limit and limit > 0 else None
+
+        actions = data.get("actions")
+        details = [f"重置时间: {reset_str}"]
+        if isinstance(actions, dict):
+            used = actions.get("total_minutes_used", 0)
+            inc = actions.get("included_minutes", 2000)
+            details.append(f"Actions: {used}/{inc}分")
+
+        return ServiceCardData(
+            service="github",
+            key_masked=mask,
+            status=status,
+            primary_metric=f"{rem:,} / {limit:,}",
+            primary_label="Core API 剩余/配额",
+            details=details,
+            progress_ratio=ratio,
+        )
+
+    # ──────────────────────────────────────
+    #  OpenRouter 相关方法
+    # ──────────────────────────────────────
 
     def _get_openrouter_keys(
         self, event: AstrMessageEvent | None = None,
@@ -101,7 +379,6 @@ class TavilyQuotaPlugin(Star):
         try:
             timeout = aiohttp.ClientTimeout(total=10)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                # 1. 查询 API Key 详情与单 Key 限额
                 try:
                     async with session.get(
                         "https://openrouter.ai/api/v1/auth/key",
@@ -118,7 +395,6 @@ class TavilyQuotaPlugin(Star):
                 except Exception:
                     logger.error("[tavily_quota] 请求 OpenRouter Key API 异常。")
 
-                # 2. 查询账户真实总充值与消费 (credits)
                 try:
                     async with session.get(
                         "https://openrouter.ai/api/v1/credits",
@@ -150,11 +426,9 @@ class TavilyQuotaPlugin(Star):
         k_info = data.get("key_info", {})
         credits_info = data.get("credits", {})
 
-        # 兼容旧格式
         if not k_info and not credits_info and "data" in data:
             k_info = data.get("data", {})
 
-        # 账户真实充值与消费
         total_credits = credits_info.get("total_credits")
         total_usage = credits_info.get("total_usage", 0.0)
 
@@ -213,7 +487,6 @@ class TavilyQuotaPlugin(Star):
         if progress:
             lines.append(f"🔋 消费进度: {progress}")
 
-        # 如果存在单 Key 预算上限且与总充值不同，单独列出提示
         budget = k_info.get("effective_budget", {})
         key_limit = budget.get("limit_usd")
         if key_limit is not None and key_limit != total_credits:
@@ -276,17 +549,6 @@ class TavilyQuotaPlugin(Star):
             logger.error("[tavily_quota] 请求 Tavily API 出现异常。")
             return None
 
-    def _render_progress_bar(
-        self, usage: int, limit: int, width: int = 10,
-    ) -> str:
-        if not limit or limit <= 0:
-            return ""
-        ratio = min(max(usage / limit, 0.0), 1.0)
-        filled = int(round(ratio * width))
-        empty = width - filled
-        pct = ratio * 100
-        return f"[{'■' * filled}{'□' * empty}] {pct:.1f}%"
-
     def _format_quota_message(
         self, api_key: str, data: dict, show_key: bool = False,
     ) -> str:
@@ -332,7 +594,7 @@ class TavilyQuotaPlugin(Star):
         return "\n".join(lines)
 
     @filter.command("tavily", alias={"tav"})
-    async def query_quota_command(self, event: AstrMessageEvent):
+    async def query_quota_command(self, event: AstrMessageEvent, *args):
         '''查询 Tavily 搜索引擎 API 的额度与使用情况'''
         if not self._can_query(event):
             yield event.plain_result("⚠️ 当前仅管理员可查询 Tavily 额度。")
@@ -343,17 +605,33 @@ class TavilyQuotaPlugin(Star):
             yield event.plain_result("❌ 未检测到 Tavily API Key，请在插件配置或全局配置中设置。")
             return
 
+        arg_str = " ".join(str(a) for a in args).lower()
+        force_text = "text" in arg_str
+        force_img = ("img" in arg_str) or ("card" in arg_str) or ("pic" in arg_str)
+
+        cards = []
+        messages = []
         for key in keys:
             data = await self._fetch_quota(key)
             if not data:
-                yield event.plain_result("❌ Tavily Key 额度查询失败，请检查网络或 Key 状态。")
+                messages.append("❌ Tavily Key 额度查询失败，请检查网络或 Key 状态。")
+                cards.append(self._card_tavily(key, None))
                 continue
 
-            msg = self._format_quota_message(key, data, show_key=False)
+            cards.append(self._card_tavily(key, data))
+            messages.append(self._format_quota_message(key, data, show_key=False))
+
+        if self._should_render_card(event, force_img=force_img, force_text=force_text):
+            img_path = self._render_card_safe(cards, title="Tavily 搜索额度看板")
+            if img_path:
+                yield event.image_result(img_path)
+                return
+
+        for msg in messages:
             yield event.plain_result(msg)
 
     @filter.command("openrouter", alias={"open", "openrouter额度"})
-    async def query_openrouter_command(self, event: AstrMessageEvent):
+    async def query_openrouter_command(self, event: AstrMessageEvent, *args):
         '''查询 OpenRouter API 的额度与使用情况'''
         if not self._can_query(event):
             yield event.plain_result("⚠️ 当前仅管理员可查询 OpenRouter 额度。")
@@ -366,14 +644,30 @@ class TavilyQuotaPlugin(Star):
             )
             return
 
+        arg_str = " ".join(str(a) for a in args).lower()
+        force_text = "text" in arg_str
+        force_img = ("img" in arg_str) or ("card" in arg_str) or ("pic" in arg_str)
+
+        cards = []
+        messages = []
         for key in keys:
             data = await self._fetch_openrouter_quota(key)
             if not data:
-                yield event.plain_result(
+                messages.append(
                     "❌ OpenRouter Key 额度查询失败，请检查网络或 Key 状态。"
                 )
+                cards.append(self._card_openrouter(key, None))
                 continue
-            msg = self._format_openrouter_message(key, data, show_key=False)
+            cards.append(self._card_openrouter(key, data))
+            messages.append(self._format_openrouter_message(key, data, show_key=False))
+
+        if self._should_render_card(event, force_img=force_img, force_text=force_text):
+            img_path = self._render_card_safe(cards, title="OpenRouter 额度看板")
+            if img_path:
+                yield event.image_result(img_path)
+                return
+
+        for msg in messages:
             yield event.plain_result(msg)
 
     @filter.llm_tool(name="query_tavily_quota")
@@ -401,6 +695,10 @@ class TavilyQuotaPlugin(Star):
 
         return "\n\n".join(results)
 
+    # ──────────────────────────────────────
+    #  DeepSeek 相关方法
+    # ──────────────────────────────────────
+
     def _get_deepseek_keys(
         self, event: AstrMessageEvent | None = None,
     ) -> list[str]:
@@ -421,57 +719,6 @@ class TavilyQuotaPlugin(Star):
         return list(dict.fromkeys(keys)) or self._normalize_keys(
             os.environ.get("DEEPSEEK_API_KEY", "")
         )
-
-    def _get_github_tokens(
-        self, event: AstrMessageEvent | None = None,
-    ) -> list[str]:
-        """兼容两种插件配置名称；不读取其他插件或 Git 凭据。"""
-        for field in ("github_tokens", "github_personal_access_tokens"):
-            tokens = self._normalize_keys(self.config.get(field, []))
-            if tokens:
-                return tokens
-        return self._normalize_keys(
-            os.environ.get("GITHUB_TOKEN", "")
-        ) or self._normalize_keys(os.environ.get("GH_TOKEN", ""))
-
-    @staticmethod
-    def _mask_key(key: str) -> str:
-        return f"{key[:4]}…{key[-4:]}" if len(key) > 12 else "***"
-
-    @staticmethod
-    def _amount(value: object) -> str:
-        """仅格式化有限数值，不把接口中的任意文字输出到聊天。"""
-        if value is None or isinstance(value, bool):
-            return "未知"
-        try:
-            number = Decimal(str(value))
-            return f"{number:.2f}" if number.is_finite() else "未知"
-        except (InvalidOperation, ValueError, TypeError):
-            return "未知"
-
-    @staticmethod
-    async def _get_json(
-        session: aiohttp.ClientSession,
-        url: str,
-        headers: dict[str, str],
-        service: str,
-        optional: bool = False,
-    ) -> dict | None:
-        """新服务共用的只读请求；不记录响应正文或凭据。"""
-        try:
-            async with session.get(
-                url, headers=headers, allow_redirects=False,
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if isinstance(data, dict):
-                        return data
-                log = logger.debug if optional else logger.warning
-                log(f"[tavily_quota] {service} 查询不可用，HTTP {response.status}。")
-        except Exception:
-            log = logger.debug if optional else logger.warning
-            log(f"[tavily_quota] {service} 查询失败，可能是网络、超时或响应格式异常。")
-        return None
 
     async def _fetch_deepseek_quota(self, api_key: str) -> dict | None:
         headers = {
@@ -521,6 +768,22 @@ class TavilyQuotaPlugin(Star):
             ])
         return "\n".join(lines)
 
+    # ──────────────────────────────────────
+    #  GitHub 相关方法
+    # ──────────────────────────────────────
+
+    def _get_github_tokens(
+        self, event: AstrMessageEvent | None = None,
+    ) -> list[str]:
+        """兼容两种插件配置名称；不读取其他插件或 Git 凭据。"""
+        for field in ("github_tokens", "github_personal_access_tokens"):
+            tokens = self._normalize_keys(self.config.get(field, []))
+            if tokens:
+                return tokens
+        return self._normalize_keys(
+            os.environ.get("GITHUB_TOKEN", "")
+        ) or self._normalize_keys(os.environ.get("GH_TOKEN", ""))
+
     async def _fetch_github_quota(self, token: str) -> dict | None:
         headers = {
             "Authorization": f"Bearer {token}",
@@ -543,8 +806,7 @@ class TavilyQuotaPlugin(Star):
                 if not isinstance(core, dict):
                     return None
                 result["core"] = core
-                # 旧 Actions 计费接口已退役；仅作兼容探测。
-                # 附加查询失败不能丢弃已获得的 Rate Limit。
+
                 user = await self._get_json(
                     session, "https://api.github.com/user",
                     headers, "GitHub 用户", optional=True,
@@ -603,6 +865,10 @@ class TavilyQuotaPlugin(Star):
                 lines.append("包含分钟数未返回，2000 为兼容默认值，并非已核实套餐额度。")
         return "\n".join(lines)
 
+    # ──────────────────────────────────────
+    #  聚合查询与指令分发
+    # ──────────────────────────────────────
+
     async def _query_services(
         self, event: AstrMessageEvent, service: str = "",
     ) -> str:
@@ -656,21 +922,165 @@ class TavilyQuotaPlugin(Star):
             return "未检测到任何服务的 API Key / Token，请先配置。"
         return "## 📊 API 配额汇总\n\n" + "\n\n---\n\n".join(blocks)
 
+    async def _collect_cards_for_services(
+        self, event: AstrMessageEvent, service: str = "",
+    ) -> list[ServiceCardData]:
+        services = {
+            "tavily": (self._get_api_keys, self._fetch_quota, self._card_tavily),
+            "openrouter": (self._get_openrouter_keys, self._fetch_openrouter_quota, self._card_openrouter),
+            "deepseek": (self._get_deepseek_keys, self._fetch_deepseek_quota, self._card_deepseek),
+            "github": (self._get_github_tokens, self._fetch_github_quota, self._card_github),
+        }
+        service = service.strip().lower()
+        if service and service not in services:
+            return []
+
+        cards: list[ServiceCardData] = []
+        for name in ([service] if service else services):
+            get_keys, fetch, card_builder = services[name]
+            keys = get_keys(event)
+            for key in keys:
+                try:
+                    data = await fetch(key)
+                    cards.append(card_builder(key, data))
+                except Exception:
+                    cards.append(card_builder(key, None))
+        return cards
+
     @filter.command("quota", alias={"配额"})
     async def query_all_command(
         self, event: AstrMessageEvent, service: str = "",
     ):
         """查询全部已配置服务，或使用 /quota 服务名 查询指定服务。"""
-        yield event.plain_result(await self._query_services(event, service))
+        if not self._can_query(event):
+            yield event.plain_result("⚠️ 当前仅管理员可查询 API 额度。")
+            return
+
+        raw_arg = service.strip()
+        arg_lower = raw_arg.lower()
+
+        # 1. 预警子指令：/quota alert [here|on|off|check|status]
+        if arg_lower.startswith(("alert", "预警", "告警")):
+            parts = arg_lower.split()
+            sub_action = parts[1] if len(parts) > 1 else "status"
+            if sub_action in ("here", "bind", "绑定", "开启", "on"):
+                self.config["enable_alert"] = True
+                self.config["alert_notify_target"] = getattr(event, "unified_msg_origin", "")
+                self.alert_manager.start()
+                hours = self.config.get("alert_interval_hours", 12)
+                yield event.plain_result(
+                    f"✅ 【已成功开启 API 额度低额预警】\n"
+                    f"🎯 推送目标已绑定当前会话: {getattr(event, 'unified_msg_origin', '当前会话')}\n"
+                    f"⏱️ 巡检周期: 每 {hours} 小时\n"
+                    f"💡 可发送 /quota alert check 立即执行一次巡检测试。"
+                )
+                return
+            elif sub_action in ("off", "close", "关闭"):
+                self.config["enable_alert"] = False
+                self.alert_manager.stop()
+                yield event.plain_result("🛑 【已关闭 API 额度自动巡检与预警】。")
+                return
+            elif sub_action in ("check", "test", "测试", "检查"):
+                yield event.plain_result("🔍 正在执行 API 额度巡检，请稍候...")
+                alerts = await self.alert_manager.check_and_notify(manual=True)
+                if alerts:
+                    yield event.plain_result(
+                        "⚠️ 【巡检结果：发现低额度/异常项】\n\n" + "\n\n────────────────\n\n".join(alerts)
+                    )
+                else:
+                    yield event.plain_result("✅ 【巡检结果：所有已配置 API 额度与余额充足！】")
+                return
+            else:
+                enabled = bool(self.config.get("enable_alert", False))
+                target = self.config.get("alert_notify_target") or "未设置（仅通知管理员）"
+                hours = self.config.get("alert_interval_hours", 12)
+                yield event.plain_result(
+                    f"🔔 【API 额度预警状态】\n"
+                    f"📌 状态: {'已开启' if enabled else '已关闭'}\n"
+                    f"🎯 接收目标: {target}\n"
+                    f"⏱️ 巡检间隔: 每 {hours} 小时\n\n"
+                    f"常用指令：\n"
+                    f"• /quota alert here - 绑定当前会话并开启预警\n"
+                    f"• /quota alert off - 关闭预警\n"
+                    f"• /quota alert check - 立即触发一次巡检测试"
+                )
+                return
+
+        # 2. 判断是否出图
+        force_text = "text" in arg_lower
+        force_img = ("img" in arg_lower) or ("card" in arg_lower) or ("pic" in arg_lower)
+
+        # 过滤控制字符
+        clean_service = arg_lower
+        for flag in ("text", "img", "card", "pic"):
+            clean_service = clean_service.replace(flag, "").strip()
+
+        # 出图看板模式
+        if self._should_render_card(event, force_img=force_img, force_text=force_text):
+            cards = await self._collect_cards_for_services(event, clean_service)
+            if cards:
+                img_path = self._render_card_safe(cards, title="API 配额与余额看板")
+                if img_path:
+                    yield event.image_result(img_path)
+                    return
+
+        # 回退纯文本
+        yield event.plain_result(await self._query_services(event, clean_service))
 
     @filter.command("deepseek", alias={"deep"})
-    async def query_deepseek_command(self, event: AstrMessageEvent):
+    async def query_deepseek_command(self, event: AstrMessageEvent, *args):
         """查询 DeepSeek 余额。"""
+        if not self._can_query(event):
+            yield event.plain_result("⚠️ 当前仅管理员可查询 API 额度。")
+            return
+
+        arg_str = " ".join(str(a) for a in args).lower()
+        force_text = "text" in arg_str
+        force_img = ("img" in arg_str) or ("card" in arg_str) or ("pic" in arg_str)
+
+        keys = self._get_deepseek_keys(event)
+        if not keys:
+            yield event.plain_result("❌ 未检测到 deepseek 配置的 API Key / Token。")
+            return
+
+        if self._should_render_card(event, force_img=force_img, force_text=force_text):
+            cards = []
+            for key in keys:
+                data = await self._fetch_deepseek_quota(key)
+                cards.append(self._card_deepseek(key, data))
+            img_path = self._render_card_safe(cards, title="DeepSeek 余额看板")
+            if img_path:
+                yield event.image_result(img_path)
+                return
+
         yield event.plain_result(await self._query_services(event, "deepseek"))
 
     @filter.command("github", alias={"git"})
-    async def query_github_command(self, event: AstrMessageEvent):
+    async def query_github_command(self, event: AstrMessageEvent, *args):
         """查询 GitHub API Rate Limit 及可获取的 Actions 配额。"""
+        if not self._can_query(event):
+            yield event.plain_result("⚠️ 当前仅管理员可查询 API 额度。")
+            return
+
+        arg_str = " ".join(str(a) for a in args).lower()
+        force_text = "text" in arg_str
+        force_img = ("img" in arg_str) or ("card" in arg_str) or ("pic" in arg_str)
+
+        tokens = self._get_github_tokens(event)
+        if not tokens:
+            yield event.plain_result("❌ 未检测到 github 配置的 API Key / Token。")
+            return
+
+        if self._should_render_card(event, force_img=force_img, force_text=force_text):
+            cards = []
+            for token in tokens:
+                data = await self._fetch_github_quota(token)
+                cards.append(self._card_github(token, data))
+            img_path = self._render_card_safe(cards, title="GitHub 配额看板")
+            if img_path:
+                yield event.image_result(img_path)
+                return
+
         yield event.plain_result(await self._query_services(event, "github"))
 
     async def _query_new_tool(

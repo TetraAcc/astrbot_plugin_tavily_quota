@@ -318,7 +318,7 @@ class NewServicesTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("未检测到任何服务", await self.plugin._query_services(Event()))
 
     def test_command_and_tool_declarations(self):
-        tree = ast.parse((Path(__file__).resolve().parents[1] / "main.py").read_text())
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8"))
         declared = {}
         tools = []
         for node in ast.walk(tree):
