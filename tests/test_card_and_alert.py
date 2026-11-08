@@ -114,6 +114,31 @@ class CardAndAlertTests(unittest.IsolatedAsyncioTestCase):
         check_res = [x async for x in self.plugin.query_all_command(event, "alert check")]
         self.assertIn("所有已配置 API 额度与余额充足", check_res[-1])
 
+    async def test_llm_tools_callable_without_event_argument(self):
+        """测试大模型 Function Calling 时不传 event 参数也能直接调用不报 missing argument。"""
+        self.plugin.config.update({
+            "api_keys": ["test-tvly"],
+            "openrouter_api_keys": ["test-or"],
+            "deepseek_api_keys": ["test-ds"],
+            "github_tokens": ["test-gh"],
+        })
+        self.plugin._fetch_quota = AsyncMock(return_value={"account": {"plan_limit": 100, "plan_usage": 10}})
+        self.plugin._fetch_openrouter_quota = AsyncMock(return_value={"credits": {"total_credits": 10, "total_usage": 1}})
+        self.plugin._fetch_deepseek_quota = AsyncMock(return_value={"is_available": True, "balance_infos": []})
+        self.plugin._fetch_github_quota = AsyncMock(return_value={"resources": {"core": {"limit": 60, "remaining": 50, "reset": 123456}}})
+
+        for tool_name in (
+            "query_tavily_quota_tool",
+            "query_openrouter_quota_tool",
+            "query_deepseek_quota_tool",
+            "query_github_quota_tool",
+        ):
+            fn = getattr(self.plugin, tool_name)
+            # 无参调用（即 LLM 在底层执行时的调用形式）
+            res = await fn()
+            self.assertIsInstance(res, str)
+            self.assertGreater(len(res), 5)
+
 
 if __name__ == "__main__":
     unittest.main()

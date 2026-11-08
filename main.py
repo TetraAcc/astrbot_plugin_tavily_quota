@@ -65,10 +65,15 @@ class TavilyQuotaPlugin(Star):
         """插件卸载时停止后台任务。"""
         self.alert_manager.stop()
 
-    def _can_query(self, event: AstrMessageEvent) -> bool:
+    def _can_query(self, event: AstrMessageEvent | None = None) -> bool:
         if not self.config.get("admin_only", False):
             return True
-        return bool(event.is_admin())
+        if event is None:
+            return True
+        try:
+            return bool(event.is_admin())
+        except Exception:
+            return True
 
     @staticmethod
     def _normalize_keys(value) -> list[str]:
@@ -144,14 +149,14 @@ class TavilyQuotaPlugin(Star):
     #  卡片渲染辅助与适配
     # ──────────────────────────────────────
 
-    def _should_render_card(self, event: AstrMessageEvent, force_img: bool = False, force_text: bool = False) -> bool:
+    def _should_render_card(self, event: AstrMessageEvent | None = None, force_img: bool = False, force_text: bool = False) -> bool:
         if force_text:
             return False
-        if not hasattr(event, "image_result"):
+        if event is not None and not hasattr(event, "image_result"):
             return False
         if force_img:
             return True
-        return bool(self.config.get("render_image", False))
+        return bool(self.config.get("render_image", True))
 
     def _render_card_safe(self, cards: list[ServiceCardData], title: str = "API 配额看板") -> str | None:
         try:
@@ -671,7 +676,7 @@ class TavilyQuotaPlugin(Star):
             yield event.plain_result(msg)
 
     @filter.llm_tool(name="query_tavily_quota")
-    async def query_tavily_quota_tool(self, event: AstrMessageEvent) -> str:
+    async def query_tavily_quota_tool(self, event: AstrMessageEvent | None = None) -> str:
         '''查询当前 Tavily 搜索引擎的额度、已使用次数和剩余可用次数。
         当用户询问 tavily 额度、剩余搜索次数或 API 用量时调用。
         '''
@@ -870,7 +875,7 @@ class TavilyQuotaPlugin(Star):
     # ──────────────────────────────────────
 
     async def _query_services(
-        self, event: AstrMessageEvent, service: str = "",
+        self, event: AstrMessageEvent | None = None, service: str = "",
     ) -> str:
         if not self._can_query(event):
             return "⚠️ 当前仅管理员可查询 API 额度。"
@@ -923,7 +928,7 @@ class TavilyQuotaPlugin(Star):
         return "## 📊 API 配额汇总\n\n" + "\n\n---\n\n".join(blocks)
 
     async def _collect_cards_for_services(
-        self, event: AstrMessageEvent, service: str = "",
+        self, event: AstrMessageEvent | None = None, service: str = "",
     ) -> list[ServiceCardData]:
         services = {
             "tavily": (self._get_api_keys, self._fetch_quota, self._card_tavily),
@@ -1084,25 +1089,25 @@ class TavilyQuotaPlugin(Star):
         yield event.plain_result(await self._query_services(event, "github"))
 
     async def _query_new_tool(
-        self, event: AstrMessageEvent, service: str,
+        self, event: AstrMessageEvent | None = None, service: str = "",
     ) -> str:
         if not self.config.get("enable_llm_tool", True):
             return "额度查询工具已禁用。"
         return await self._query_services(event, service)
 
     @filter.llm_tool(name="query_deepseek_quota")
-    async def query_deepseek_quota_tool(self, event: AstrMessageEvent) -> str:
+    async def query_deepseek_quota_tool(self, event: AstrMessageEvent | None = None) -> str:
         """查询 DeepSeek 的可用状态、币种、总余额、充值余额和赠送体验金。"""
         return await self._query_new_tool(event, "deepseek")
 
     @filter.llm_tool(name="query_github_quota")
-    async def query_github_quota_tool(self, event: AstrMessageEvent) -> str:
+    async def query_github_quota_tool(self, event: AstrMessageEvent | None = None) -> str:
         """查询 GitHub Core API 配额、重置时间及可获取的 Actions 分钟配额。"""
         return await self._query_new_tool(event, "github")
 
     @filter.llm_tool(name="query_openrouter_quota")
     async def query_openrouter_quota_tool(
-        self, event: AstrMessageEvent,
+        self, event: AstrMessageEvent | None = None,
     ) -> str:
         '''查询当前 OpenRouter API 的额度、已消费金额和剩余额度。
         当用户询问 OpenRouter 额度、剩余费用或 API 用量时调用。
