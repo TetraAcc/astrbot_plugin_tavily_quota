@@ -1,5 +1,10 @@
 # 更新日志
 
+## v1.4.1 — 2026-11-13
+
+- 修复 SiliconFlow 余额查询：国区 `api.siliconflow.cn/v1/user/info` 已下线（HTTP 410 / `code 20092`，无替代接口），改走国际站 `api.siliconflow.com/v1/user/info`。
+- 国区 Key 不支持国际站（返回 `401 Token is invalid`），国区账号请前往 `cloud.siliconflow.cn` 费用账单查看余额，README 已补充说明。
+
 ## v1.4.0 — 2026-11-09
 
 - 新增 SiliconFlow（`/sili`、`/silicon`）、Moonshot（`/kimi`、`/moonshot`）、智谱（`/glm`）与 Serper（`/serper`）额度与余额查询。

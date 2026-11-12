@@ -1,6 +1,6 @@
 # 全能 API 额度与余额监控 (astrbot_plugin_api_quota)
 
-当前版本：**v1.4.0** · [更新日志](CHANGELOG.md)
+当前版本：**v1.4.1** · [更新日志](CHANGELOG.md)
 
 支持多个 Key、暗色图片看板、未配置服务自动隔离隐藏、低额度自动预警、大模型自然语言查询和管理员权限控制。
 
@@ -12,7 +12,7 @@
 | OpenRouter | `/open`、`/openrouter` | 账户余额、消费和 Key 预算 | 支持 `/open img` 或 `/open text` |
 | DeepSeek | `/deep`、`/deepseek` | 可用状态、币种、总余额、充值金和体验金 | 支持 `/deep img` 或 `/deep text` |
 | GitHub | `/git`、`/github` | Core API 剩余次数、配额和重置时间 | 支持 `/git img` 或 `/git text` |
-| SiliconFlow (硅基流动) | `/sili`、`/silicon` | 可用总余额、充值余额、赠送金及账户状态 | 支持 `/sili img` 或 `/sili text` |
+| SiliconFlow (硅基流动) | `/sili`、`/silicon` | 可用总余额、充值余额、赠送金及账户状态 | 走**国际站** `api.siliconflow.com`；国区 Key 不支持，详见下方说明 |
 | Moonshot AI (Kimi) | `/kimi`、`/moonshot` | 可用总余额、现金余额与优惠代金券 | 支持 `/kimi img` 或 `/kimi text` |
 | Zhipu AI (智谱/GLM) | `/glm` | 账户现金余额、总资产与 Coding Plan 窗口配额 | 支持 `/glm img` 或 `/glm text` |
 | Serper (Google Search) | `/serper` | Google 搜索 API 剩余调用配额 | 支持 `/serper img` 或 `/serper text` |
@@ -25,6 +25,13 @@
 > 1. 开启 LLM 工具后，可直接向机器人提问“查一下 DeepSeek 余额”、“硅基流动还剩多少钱”或“Tavily 还能搜几次”，大模型将自动调用对应工具返回文本。
 > 2. 默认在支持发送图片的平台上优先呈现**暗色仪表盘卡片图**，若需纯文本可在任意指令后加 `text`（例如 `/quota text`、`/sili text`）。
 > 3. `/quota` 会自动识别并只展示你配置了凭据的平台，未配置或未启用的平台绝不会多余显示。
+
+---
+
+## ⚠️ 关于硅基流动（SiliconFlow）余额查询
+
+- 硅基流动**国区**（`api.siliconflow.cn`）已于 2026 年下线 `GET /v1/user/info` 余额接口，返回 `HTTP 410` / `code 20092`（*This endpoint is deprecated and is no longer available*），且官方**暂未提供替代余额接口**。国区账号**无法通过本插件查询余额**，请前往 [cloud.siliconflow.cn](https://cloud.siliconflow.cn) 的「费用账单」页面查看。
+- 本插件 `/sili` 已改为请求**国际站** `api.siliconflow.com/v1/user/info`。国区 Key 在国际站会返回 `401 Token is invalid`，属正常现象；如需查询请使用**国际站账号**生成的 Key。
 
 ---
 
@@ -55,7 +62,7 @@
 | `openrouter_api_keys` | `[]` | OpenRouter Key 列表（留空自动读取会话配置或环境变量） |
 | `deepseek_api_keys` | `[]` | DeepSeek Key 列表（留空自动读取当前启用的 Provider） |
 | `github_tokens` | `[]` | GitHub PAT 列表（仅读取专用配置或环境变量） |
-| `siliconflow_api_keys` | `[]` | SiliconFlow (硅基流动) Key 列表（留空读取 Provider 或环境变量） |
+| `siliconflow_api_keys` | `[]` | SiliconFlow (硅基流动) **国际站** Key 列表（留空读取 Provider 或环境变量；国区 Key 不支持） |
 | `moonshot_api_keys` | `[]` | Moonshot AI (Kimi) Key 列表（留空读取 Provider 或环境变量） |
 | `zhipu_api_keys` | `[]` | Zhipu AI (智谱/GLM) Key 列表（留空读取 Provider 或环境变量） |
 | `serper_api_keys` | `[]` | Serper Key 列表（留空读取环境变量 `SERPER_API_KEY`） |

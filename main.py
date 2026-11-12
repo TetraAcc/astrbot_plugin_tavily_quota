@@ -1086,8 +1086,10 @@ class TavilyQuotaPlugin(Star):
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as session:
+                # 国际站接口；国区（api.siliconflow.cn）的 /v1/user/info 已于 2026 年下线（HTTP 410 / code 20092），
+                # 官方未提供替代余额接口，故余额查询统一走国际站，国区 Key 不支持。
                 data = await self._get_json(
-                    session, "https://api.siliconflow.cn/v1/user/info",
+                    session, "https://api.siliconflow.com/v1/user/info",
                     headers, "SiliconFlow",
                 )
         except Exception:
